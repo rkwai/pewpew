@@ -2,6 +2,7 @@ import { THREE, GLTFLoader } from '../utilities/ThreeImports.js';
 import { GameConfig } from '../config/game.config.js';
 import { Bullet } from './Bullet.js';
 import { clamp, enhanceMaterial } from '../utilities/Utils.js';
+import { Explosion } from './Explosion.js';
 
 // Remove direct import and use path string instead
 // import spaceshipModel from '../../../assets/models/spaceship.glb';
@@ -355,11 +356,54 @@ export class Player {
         }
     }
     
-    takeDamage(amount) {
+    takeDamage(amount, impactPoint = null) {
         if (this.isInvulnerable) return;
         
         this.health -= amount;
         document.getElementById('health').innerText = `Health: ${this.health}%`;
+        
+        // Create explosion effect at the impact point
+        if (this.model) {
+            try {
+                // Use provided impact point if available, otherwise use hit sphere center
+                const position = impactPoint || this.getHitSpherePosition();
+                
+                // Calculate explosion size based on the player's hit sphere and damage amount
+                // This creates bigger explosions for larger impacts
+                const baseSize = this.hitSphereRadius * 0.15; // Base explosion size from player size
+                const damageMultiplier = Math.min(amount / 20, 2); // Scale with damage, capped at 2x
+                
+                // Add slight random variation for visual interest
+                const sizeVariation = 1 + (Math.random() * 0.2 - 0.1); // ±10% variation
+                
+                // Final explosion size based on player size, damage, and variation
+                const explosionSize = baseSize * damageMultiplier * sizeVariation;
+                
+                new Explosion(this.scene, position, explosionSize);
+                
+                // For major hits (damage > 30), add secondary smaller explosions at random offsets
+                if (amount > 30) {
+                    // Number of secondary explosions based on damage
+                    const secondaryCount = Math.min(Math.floor(amount / 15), 3); // Up to 3 secondary explosions
+                    
+                    for (let i = 0; i < secondaryCount; i++) {
+                        const offset = new THREE.Vector3(
+                            (Math.random() - 0.5) * this.hitSphereRadius * 0.8,
+                            (Math.random() - 0.5) * this.hitSphereRadius * 0.8, 
+                            (Math.random() - 0.5) * this.hitSphereRadius * 0.8
+                        );
+                        
+                        const secondaryPosition = position.clone().add(offset);
+                        const secondarySize = explosionSize * (0.4 + Math.random() * 0.3); // 40-70% of main size
+                        
+                        // Create secondary explosions immediately
+                        new Explosion(this.scene, secondaryPosition, secondarySize);
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to create explosion for player impact:', error);
+            }
+        }
         
         // Make player invulnerable for a short time
         this.isInvulnerable = true;

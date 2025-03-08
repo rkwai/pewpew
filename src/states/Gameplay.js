@@ -3,6 +3,7 @@ import { GameConfig } from '../config/game.config.js';
 import { Player } from '../entities/Player.js';
 import { AsteroidManager } from '../entities/AsteroidManager.js';
 import { InputHandler } from '../utilities/InputHandler.js';
+import { Explosion } from '../entities/Explosion.js';
 
 // Debug mode flag - set to false to disable debug features
 const DEBUG_MODE = false;
@@ -17,14 +18,25 @@ export class Gameplay {
         this.inputHandler = null;
         this.clock = new THREE.Clock();
         this.isGameOver = false;
+        this.explosions = []; // Array to track active explosions
         
         this.init();
     }
     
     init() {
+        console.log('Initializing gameplay state');
+        
         // Create scene
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x000020);
+        
+        // Initialize explosions array if not already done
+        if (!this.explosions) {
+            this.explosions = [];
+        }
+        
+        // Set global reference to this game state for explosions to register
+        window.gameState = this;
         
         // Update game config with actual screen dimensions
         this.updateScreenDimensions();
@@ -246,6 +258,14 @@ export class Gameplay {
             this.asteroidManager.update(deltaTime, this.player);
         }
         
+        // Update explosions
+        for (let i = this.explosions.length - 1; i >= 0; i--) {
+            const isActive = this.explosions[i].update(deltaTime);
+            if (!isActive) {
+                this.explosions.splice(i, 1);
+            }
+        }
+        
         // Update starfield (scrolling effect) - now moves from right to left
         if (this.starfield) {
             this.starfield.position.x -= 30 * deltaTime; // Move stars left
@@ -334,6 +354,17 @@ export class Gameplay {
         if (this.asteroidManager) {
             this.asteroidManager.reset();
         }
+        
+        // Clean up explosions
+        for (const explosion of this.explosions) {
+            if (explosion.destroy) {
+                explosion.destroy();
+            }
+        }
+        this.explosions = [];
+        
+        // Remove global reference
+        window.gameState = null;
         
         if (this.inputHandler) {
             this.inputHandler.destroy();

@@ -1,6 +1,7 @@
 import { THREE, GLTFLoader } from '../utilities/ThreeImports.js';
 import { GameConfig } from '../config/game.config.js';
 import { random, randomInt, enhanceMaterial, lerp, smoothStep, easeInOut, smoothOscillate } from '../utilities/Utils.js';
+import { Explosion } from './Explosion.js';
 
 // Remove direct import and use path string instead
 // import asteroidModel from '../../../assets/models/asteroid.glb';
@@ -192,6 +193,12 @@ export class Asteroid {
             // Use path string instead of import
             'assets/models/asteroid.glb',
             (gltf) => {
+                // Check if container still exists
+                if (!this.container) {
+                    console.warn('Cannot add asteroid model: container is null');
+                    return;
+                }
+                
                 console.log('Asteroid model loaded successfully');
                 
                 // Add the loaded model
@@ -219,6 +226,8 @@ export class Asteroid {
                         // Enhance materials without washing out colors
                         if (Array.isArray(child.material)) {
                             child.material.forEach(mat => {
+                                if (!mat) return;
+                                
                                 // Preserve original color while enhancing vibrancy
                                 const hsl = {};
                                 mat.color.getHSL(hsl);
@@ -246,34 +255,7 @@ export class Asteroid {
                                 enhanceMaterial(mat, GameConfig);
                             });
                         } else if (child.material) {
-                            // Single material
-                            const mat = child.material;
-                            
-                            // Preserve original color while enhancing vibrancy
-                            const hsl = {};
-                            mat.color.getHSL(hsl);
-                            mat.color.setHSL(
-                                hsl.h,                    // Keep original hue
-                                Math.min(hsl.s * GameConfig.asteroid.aesthetics.saturationMultiplier, 1), // Boost saturation
-                                Math.min(hsl.l * GameConfig.asteroid.aesthetics.lightnessMultiplier, 1)  // Slight lightness boost
-                            );
-                            
-                            // Add slight emissive for better visibility in space
-                            mat.emissive = new THREE.Color(hsl.h, 
-                                GameConfig.asteroid.aesthetics.emissiveColor.s, 
-                                GameConfig.asteroid.aesthetics.emissiveColor.l);
-                            mat.emissiveIntensity = GameConfig.asteroid.aesthetics.emissiveIntensity;
-                            
-                            // Enhance material properties for realistic rock appearance
-                            if (mat.type.includes('MeshStandard')) {
-                                mat.metalness = GameConfig.asteroid.aesthetics.standardMaterial.metalness;
-                                mat.roughness = GameConfig.asteroid.aesthetics.standardMaterial.roughness;
-                            } else {
-                                mat.shininess = GameConfig.asteroid.aesthetics.phongMaterial.shininess;
-                            }
-                            
-                            // Apply global material enhancements
-                            enhanceMaterial(mat, GameConfig);
+                            // Single material handling would go here
                         }
                     }
                 });
@@ -281,8 +263,26 @@ export class Asteroid {
             undefined,
             (error) => {
                 console.error('An error occurred while loading the asteroid model:', error);
+                
+                // Create a simple placeholder if the container is still valid
+                if (this.container) {
+                    this.createPlaceholderModel();
+                }
             }
         );
+    }
+    
+    // Create a simple placeholder model when the main model fails to load
+    createPlaceholderModel() {
+        // Create a simple geometry for the placeholder
+        const geometry = new THREE.SphereGeometry(this.size, 8, 8);
+        const material = new THREE.MeshBasicMaterial({
+            color: 0xaaaaaa,
+            wireframe: true
+        });
+        
+        const placeholderMesh = new THREE.Mesh(geometry, material);
+        this.container.add(placeholderMesh);
     }
     
     update(deltaTime) {
@@ -410,46 +410,51 @@ export class Asteroid {
         return this.health <= 0;
     }
     
-    explode() {
-        // Create explosion effect
-        const explosionGeometry = new THREE.SphereGeometry(this.size, 8, 8);
-        const explosionMaterial = new THREE.MeshBasicMaterial({
-            color: 0xff6600,
-            transparent: true,
-            opacity: 0.8
-        });
-        
-        const explosionParticles = new THREE.Mesh(explosionGeometry, explosionMaterial);
-        explosionParticles.position.copy(this.container.position);
-        this.scene.add(explosionParticles);
+    explode(impactPoint = null) {
+        try {
+            // Create an explosion using the explosion.glb model
+            // Make explosion size directly proportional to asteroid size
+            // for more visual impact, using a multiplier of 0.3
+            const explosionSize = this.size * 0.3;
+            
+            // Add slight random variation (±15%) to explosion size for visual interest
+            const sizeVariation = 1 + (Math.random() * 0.3 - 0.15);
+            const finalSize = explosionSize * sizeVariation;
+            
+            // Use the impact point if provided, otherwise use asteroid center
+            const explosionPosition = impactPoint || this.container.position.clone();
+            
+            // Create the main explosion
+            new Explosion(this.scene, explosionPosition, finalSize);
+            
+            // For larger asteroids, create additional smaller explosions immediately
+            if (this.size > 30) {
+                const fragmentCount = Math.floor(Math.random() * 3) + 1; // 1-3 additional explosions
+                
+                for (let i = 0; i < fragmentCount; i++) {
+                    // Create random offset from main explosion
+                    const offset = new THREE.Vector3(
+                        (Math.random() - 0.5) * this.size * 0.8,
+                        (Math.random() - 0.5) * this.size * 0.8,
+                        (Math.random() - 0.5) * this.size * 0.4
+                    );
+                    
+                    // Calculate fragment position
+                    const fragmentPosition = explosionPosition.clone().add(offset);
+                    
+                    // Secondary explosions are smaller
+                    const fragmentSize = finalSize * (0.3 + Math.random() * 0.4);
+                    
+                    // Create fragment explosions immediately
+                    new Explosion(this.scene, fragmentPosition, fragmentSize);
+                }
+            }
+        } catch (error) {
+            console.error('Failed to create explosion for asteroid:', error);
+        }
         
         // Remove the asteroid
         this.scene.remove(this.container);
-        
-        // Animate explosion
-        let lifetime = 1.0;
-        const animateExplosion = () => {
-            lifetime -= 0.05;
-            
-            if (lifetime <= 0) {
-                this.scene.remove(explosionParticles);
-                return;
-            }
-            
-            // Expand
-            explosionParticles.scale.set(
-                1 + (1 - lifetime),
-                1 + (1 - lifetime),
-                1 + (1 - lifetime)
-            );
-            
-            // Fade out
-            explosionParticles.material.opacity = lifetime;
-            
-            requestAnimationFrame(animateExplosion);
-        };
-        
-        animateExplosion();
     }
     
     getPosition() {
@@ -461,8 +466,13 @@ export class Asteroid {
     }
     
     destroy() {
+        // Skip if already destroyed
+        if (!this.container) return;
+        
         // Remove from scene
-        this.scene.remove(this.container);
+        if (this.scene) {
+            this.scene.remove(this.container);
+        }
         
         // Clean up resources
         if (this.model) {
@@ -472,12 +482,25 @@ export class Asteroid {
                         child.geometry.dispose();
                     }
                     if (Array.isArray(child.material)) {
-                        child.material.forEach(material => material.dispose());
+                        child.material.forEach(material => {
+                            if (material) material.dispose();
+                        });
                     } else if (child.material) {
                         child.material.dispose();
                     }
                 }
             });
+        }
+        
+        // Clean up hit sphere
+        if (this.hitSphere) {
+            if (this.hitSphere.geometry) {
+                this.hitSphere.geometry.dispose();
+            }
+            if (this.hitSphere.material) {
+                this.hitSphere.material.dispose();
+            }
+            this.hitSphere = null;
         }
         
         // Clear references

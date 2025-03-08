@@ -1,6 +1,7 @@
 import { THREE } from '../utilities/ThreeImports.js';
 import { GameConfig } from '../config/game.config.js';
 import { GLTFLoader } from '../utilities/ThreeImports.js';
+import { Explosion } from './Explosion.js';
 
 // Remove direct import and use path string instead
 // import missileModel from '../../../assets/models/missile.glb';
@@ -32,6 +33,12 @@ export class Bullet {
         loader.load(
             'assets/models/missile.glb',
             (gltf) => {
+                // Check if mesh still exists
+                if (!this.mesh) {
+                    console.warn('Cannot add missile model: mesh container is null');
+                    return;
+                }
+                
                 console.log('Missile model loaded successfully');
                 // Instead of removing the container, add the missile model as a child
                 this.model = gltf.scene;
@@ -56,9 +63,9 @@ export class Bullet {
                             // If it has a material, increase its brightness
                             if (Array.isArray(child.material)) {
                                 child.material.forEach(mat => {
-                                    this.enhanceMaterial(mat);
+                                    if (mat) this.enhanceMaterial(mat);
                                 });
-                            } else {
+                            } else if (child.material) {
                                 this.enhanceMaterial(child.material);
                             }
                         }
@@ -68,8 +75,26 @@ export class Bullet {
             undefined,
             (error) => {
                 console.error('An error occurred while loading the missile model:', error);
+                // Create a simple placeholder if loading fails
+                if (this.mesh) {
+                    this.createPlaceholderModel();
+                }
             }
         );
+    }
+    
+    // Create a simple placeholder model when the main model fails to load
+    createPlaceholderModel() {
+        const geometry = new THREE.ConeGeometry(5, 20, 8);
+        const material = new THREE.MeshBasicMaterial({
+            color: 0xffff00,
+            emissive: 0xffff00,
+            emissiveIntensity: 1.5
+        });
+        
+        const placeholderMesh = new THREE.Mesh(geometry, material);
+        placeholderMesh.rotation.z = Math.PI / 2; // Rotate to point forward
+        this.mesh.add(placeholderMesh);
     }
     
     // Helper method to enhance material brightness
@@ -101,14 +126,56 @@ export class Bullet {
     }
     
     destroy() {
+        if (!this.mesh) return; // Already destroyed
+        
+        // Store position before removing from scene for explosion effect
+        const missilePosition = this.getPosition().clone();
+        
+        // Clean up trail if it exists
         if (this.trail) {
             this.scene.remove(this.trail);
-            this.trail.geometry.dispose();
-            this.trail.material.dispose();
+            if (this.trail.geometry) this.trail.geometry.dispose();
+            if (this.trail.material) this.trail.material.dispose();
             this.trail = null;
         }
         
-        this.scene.remove(this.mesh);
+        // Clean up model resources
+        if (this.model) {
+            this.model.traverse((child) => {
+                if (child.isMesh) {
+                    if (child.geometry) {
+                        child.geometry.dispose();
+                    }
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach(material => {
+                            if (material) material.dispose();
+                        });
+                    } else if (child.material) {
+                        child.material.dispose();
+                    }
+                }
+            });
+            this.model = null;
+        }
+        
+        // Remove from scene
+        if (this.scene) {
+            this.scene.remove(this.mesh);
+        }
+        this.mesh = null;
+        
+        // Create explosion effect at missile's position
+        // Only if this is a true destruction, not just cleanup
+        try {
+            // Smaller explosion for missile
+            const explosionSize = 1.2;
+            // Add slight random variation for visual interest
+            const sizeVariation = 1 + (Math.random() * 0.3 - 0.15); // ±15% variation
+            
+            new Explosion(this.scene, missilePosition, explosionSize * sizeVariation);
+        } catch (error) {
+            console.error('Failed to create explosion for missile:', error);
+        }
     }
     
     getPosition() {

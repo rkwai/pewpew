@@ -1,6 +1,8 @@
 import { Asteroid } from './Asteroid.js';
 import { GameConfig } from '../config/game.config.js';
 import { checkCollision } from '../utilities/Utils.js';
+import { Explosion } from './Explosion.js';
+import { THREE } from '../utilities/ThreeImports.js';
 
 export class AsteroidManager {
     constructor(scene) {
@@ -43,8 +45,30 @@ export class AsteroidManager {
                         console.log('Player collision detected!');
                     }
                     
-                    player.takeDamage(20);
-                    asteroid.explode();
+                    // Calculate the impact point between asteroid and player
+                    const asteroidPosition = asteroid.getPosition();
+                    
+                    // Direction from asteroid to player
+                    const impactDirection = playerPosition.clone().sub(asteroidPosition).normalize();
+                    
+                    // Calculate impact point - midway between the asteroid surface and player surface
+                    const asteroidSurfacePoint = asteroidPosition.clone().add(
+                        impactDirection.clone().multiplyScalar(asteroid.hitSphereRadius)
+                    );
+                    const playerSurfacePoint = playerPosition.clone().sub(
+                        impactDirection.clone().multiplyScalar(playerRadius)
+                    );
+                    
+                    // Average the two points for precise impact location
+                    const impactPoint = new THREE.Vector3().addVectors(
+                        asteroidSurfacePoint, playerSurfacePoint
+                    ).multiplyScalar(0.5);
+                    
+                    // Pass damage amount and impact point to player
+                    player.takeDamage(20, impactPoint);
+                    
+                    // Explode the asteroid at the impact point
+                    asteroid.explode(impactPoint);
                     this.asteroids.splice(i, 1);
                     continue;
                 }
@@ -63,10 +87,31 @@ export class AsteroidManager {
                     if (asteroid.checkCollision(bulletPosition, bulletRadius)) {
                         const destroyed = asteroid.takeDamage(50);
                         
+                        // Create explosion at the exact point of impact (bullet position)
+                        // Get the direction from asteroid center to bullet
+                        const asteroidPosition = asteroid.getPosition();
+                        const impactDirection = bulletPosition.clone().sub(asteroidPosition).normalize();
+                        
+                        // Calculate actual impact point on the asteroid surface
+                        // By projecting from center to hit sphere boundary in direction of bullet
+                        const impactPoint = asteroidPosition.clone().add(
+                            impactDirection.multiplyScalar(asteroid.hitSphereRadius * 0.8)
+                        );
+                        
                         if (destroyed) {
                             this.increaseScore(Math.floor(asteroid.size));
-                            asteroid.explode();
+                            // Pass impact point to explode method
+                            asteroid.explode(impactPoint);
                             this.asteroids.splice(i, 1);
+                        } else {
+                            // Smaller explosion for non-destroying hits
+                            try {
+                                // Small explosion at impact point for visual feedback
+                                const smallExplosionSize = asteroid.size * 0.1; // 1/3 of full explosion
+                                new Explosion(this.scene, impactPoint, smallExplosionSize);
+                            } catch (error) {
+                                console.error('Failed to create small impact explosion:', error);
+                            }
                         }
                         
                         // Remove the bullet
