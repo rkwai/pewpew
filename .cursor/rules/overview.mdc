@@ -1,0 +1,29 @@
+---
+description: Overview of solution
+globs: 
+alwaysApply: true
+---
+# Project Overview
+
+## Choosing the Right Library
+For your web-based 2.5D shooter game inspired by Gradius, three.js and .glb models
+
+## Game Description
+Your game will feature a side-scrolling shooter where the player controls a spaceship, shooting enemies and navigating levels.
+
+## Project Structure
+To organize your project, you'll need a clear directory structure. Here's a suggested layout:
+
+- **config/**: Holds game settings like screen size and constants (e.g., `game.config.js`).
+- **src/**: Contains all source code, with subfolders for:
+  - **states/**: Files for game states like menu, gameplay, and game over (e.g., `Boot.js`, `Gameplay.js`).
+  - **entities/**: Classes for game objects like player, enemies, and bullets (e.g., `Player.js`, `Enemy.js`).
+  - **utilities/**: Helper functions (e.g., `Utils.js`).
+- **assets/**: Stores game assets, with subfolders for:
+  - **images/**: Organized by type (e.g., player, enemies, backgrounds).
+  - **models/**: 3d models for the game.
+  - **sounds/**: For effects and music.
+- **build/**: Includes compiled files for deployment (e.g., `index.html`, `game.min.js`).
+
+## Coding Standards
+Do NOT use fallback code -- throw errors instead
