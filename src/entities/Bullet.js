@@ -21,6 +21,10 @@ export class Bullet {
         // Add to scene
         this.scene.add(this.mesh);
         
+        this.hitSphereRadius = 5;
+        this.hitSphereVisible = GameConfig.bullet?.debug?.showHitSphere || false;
+        this.createHitSphere();
+        
         // Trail is removed as requested
         
         // Load missile model
@@ -192,5 +196,22 @@ export class Bullet {
             return new THREE.Vector3(0, 0, 0);
         }
         return this.mesh.position.clone();
+    }
+
+    // Create hit sphere for bullet (missile) collision detection
+    createHitSphere() {
+        const hitSphereGeometry = new THREE.SphereGeometry(this.hitSphereRadius, 16, 12);
+        const hitSphereMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffff00, // Yellow color for missile hit sphere
+            transparent: true,
+            opacity: this.hitSphereVisible ? 0.3 : 0,
+            wireframe: this.hitSphereVisible
+        });
+
+        this.hitSphere = new THREE.Mesh(hitSphereGeometry, hitSphereMaterial);
+        // Position at the origin of the bullet container
+        this.hitSphere.position.set(0, 0, 0);
+        this.mesh.add(this.hitSphere);
+        console.log(`Created bullet hit sphere with radius ${this.hitSphereRadius}`);
     }
 } 

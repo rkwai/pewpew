@@ -32,9 +32,8 @@ export class AsteroidManager {
         for (let i = this.asteroids.length - 1; i >= 0; i--) {
             const asteroid = this.asteroids[i];
             
-            // Skip destroyed asteroids
+            // Don't process destroyed asteroids - they will be removed after the loop
             if (asteroid.isDestroyed) {
-                this.asteroids.splice(i, 1);
                 continue;
             }
             
@@ -102,37 +101,31 @@ export class AsteroidManager {
                         const destroyed = asteroid.takeDamage(50);
                         
                         // Create explosion at the exact point of impact (bullet position)
-                        // Get the direction from asteroid center to bullet
                         const asteroidPosition = asteroid.getPosition();
+                        // Direction from asteroid center to bullet
                         const impactDirection = bulletPosition.clone().sub(asteroidPosition).normalize();
                         
-                        // Calculate actual impact point on the asteroid surface
-                        // By projecting from center to hit sphere boundary in direction of bullet
+                        // Calculate impact point on the asteroid surface
                         const impactPoint = asteroidPosition.clone().add(
                             impactDirection.multiplyScalar(asteroid.hitSphereRadius * 0.8)
                         );
                         
                         if (destroyed) {
                             this.increaseScore(Math.floor(asteroid.size));
-                            // Pass impact point to explode method
                             asteroid.explode(impactPoint);
                             this.asteroids.splice(i, 1);
                         } else {
-                            // Smaller explosion for non-destroying hits
                             try {
-                                // Small explosion at impact point for visual feedback
-                                const smallExplosionSize = asteroid.size * 0.1; // 1/10 of full explosion
+                                const smallExplosionSize = asteroid.size * 0.2;
                                 new Explosion(this.scene, impactPoint, smallExplosionSize);
                             } catch (error) {
                                 console.error('Failed to create small impact explosion:', error);
                             }
                         }
                         
-                        // Remove the bullet
                         bullet.destroy();
                         player.bullets.splice(j, 1);
                         
-                        // Set flag to avoid checking more bullets against this asteroid
                         bulletHit = true;
                         break;
                     }

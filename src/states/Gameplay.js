@@ -488,15 +488,15 @@ export class Gameplay {
                 // Update existing asteroids
                 if (this.asteroidManager && this.asteroidManager.asteroids) {
                     this.asteroidManager.asteroids.forEach(asteroid => {
-                        if (asteroid.hitSphere) {
-                            // Update hit sphere visibility
-                            asteroid.hitSphereVisible = GameConfig.asteroid.debug.showHitSpheres;
-                            asteroid.hitSphere.material.opacity = GameConfig.asteroid.debug.showHitSpheres ? 0.3 : 0;
-                            asteroid.hitSphere.material.wireframe = GameConfig.asteroid.debug.showHitSpheres;
-                            
-                            // Reset color
-                            asteroid.hitSphere.material.color.set(0x00ff00);
+                        if (!asteroid.hitSphere) {
+                            asteroid.createHitSphere();
                         }
+                        // Update hit sphere visibility
+                        asteroid.hitSphereVisible = GameConfig.asteroid.debug.showHitSpheres;
+                        asteroid.hitSphere.material.opacity = GameConfig.asteroid.debug.showHitSpheres ? 0.3 : 0;
+                        asteroid.hitSphere.material.wireframe = GameConfig.asteroid.debug.showHitSpheres;
+                        // Reset color
+                        asteroid.hitSphere.material.color.set(0x00ff00);
                     });
                 }
                 

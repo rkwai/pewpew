@@ -570,13 +570,7 @@ export class Asteroid {
         
         // If hit sphere isn't created yet, use a basic distance check with container position
         if (!this.hitSphere) {
-            // Fallback collision detection using container position and size
-            if (!objectPosition || typeof objectPosition.distanceTo !== 'function') {
-                return false;
-            }
-            
-            const distance = this.container.position.distanceTo(objectPosition);
-            return distance < (this.size * 1.2 + objectRadius); // 1.2 matches the hitSphereSize multiplier
+            return false;
         }
         
         // Get asteroid's world position
