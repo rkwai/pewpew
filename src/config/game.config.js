@@ -120,7 +120,7 @@ export const GameConfig = {
         // Ship aesthetics
         aesthetics: {
             // Base model appearance
-            scale: 15, // Ship scale factor
+            scale: 20, // Ship scale factor
             rotation: Math.PI, // Initial rotation (faces along negative x-axis)
             
             // Material enhancement
@@ -180,7 +180,7 @@ export const GameConfig = {
         minRotationSpeed: 0.01,
         maxRotationSpeed: 0.05,
         spawnRate: 2, // per second
-        spawnDistance: 300,
+        spawnDistance: 250,
         spawnDepth: {
             min: -80,
             max: 80

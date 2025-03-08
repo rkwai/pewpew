@@ -12,6 +12,7 @@ export class Bullet {
         this.speed = GameConfig.bullet.speed;
         this.lifeTime = GameConfig.bullet.lifespan;
         this.initialPosition = position.clone();
+        this.isDestroyed = false; // Track if bullet is destroyed
         
         // Create a bullet container
         this.mesh = new THREE.Object3D();
@@ -33,9 +34,9 @@ export class Bullet {
         loader.load(
             'assets/models/missile.glb',
             (gltf) => {
-                // Check if mesh still exists
-                if (!this.mesh) {
-                    console.warn('Cannot add missile model: mesh container is null');
+                // Check if bullet is destroyed or mesh doesn't exist
+                if (this.isDestroyed || !this.mesh) {
+                    console.warn('Cannot add missile model: bullet is destroyed or mesh container is null');
                     return;
                 }
                 
@@ -75,8 +76,8 @@ export class Bullet {
             undefined,
             (error) => {
                 console.error('An error occurred while loading the missile model:', error);
-                // Create a simple placeholder if loading fails
-                if (this.mesh) {
+                // Create a simple placeholder if loading fails and bullet still exists
+                if (this.mesh && !this.isDestroyed) {
                     this.createPlaceholderModel();
                 }
             }
@@ -115,6 +116,8 @@ export class Bullet {
     // Note: createTrail method is removed as requested
     
     update(deltaTime) {
+        if (this.isDestroyed) return true; // Skip update if destroyed
+        
         // Move the bullet container from left to right
         this.mesh.position.x += this.speed * deltaTime;
         
@@ -126,7 +129,9 @@ export class Bullet {
     }
     
     destroy() {
-        if (!this.mesh) return; // Already destroyed
+        if (!this.mesh || this.isDestroyed) return; // Already destroyed
+        
+        this.isDestroyed = true; // Mark as destroyed immediately
         
         // Store position before removing from scene for explosion effect
         const missilePosition = this.getPosition().clone();
@@ -164,21 +169,28 @@ export class Bullet {
         }
         this.mesh = null;
         
-        // Create explosion effect at missile's position
-        // Only if this is a true destruction, not just cleanup
+        // Create explosion effect at missile's position only if:
+        // 1. This is a real destruction (not just cleanup at end of game)
+        // 2. The bullet wasn't just created (avoid explosions on load errors)
         try {
-            // Smaller explosion for missile
-            const explosionSize = 1.2;
-            // Add slight random variation for visual interest
-            const sizeVariation = 1 + (Math.random() * 0.3 - 0.15); // ±15% variation
-            
-            new Explosion(this.scene, missilePosition, explosionSize * sizeVariation);
+            if (this.lifeTime < GameConfig.bullet.lifespan - 0.1) { // Only create explosion if bullet has existed for a bit
+                // Smaller explosion for missile
+                const explosionSize = 1.2;
+                // Add slight random variation for visual interest
+                const sizeVariation = 1 + (Math.random() * 0.3 - 0.15); // ±15% variation
+                
+                new Explosion(this.scene, missilePosition, explosionSize * sizeVariation);
+            }
         } catch (error) {
             console.error('Failed to create explosion for missile:', error);
         }
     }
     
     getPosition() {
+        if (!this.mesh || this.isDestroyed) {
+            // If already destroyed, return a default position to avoid errors
+            return new THREE.Vector3(0, 0, 0);
+        }
         return this.mesh.position.clone();
     }
 } 

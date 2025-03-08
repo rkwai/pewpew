@@ -4,6 +4,7 @@ import { Player } from '../entities/Player.js';
 import { AsteroidManager } from '../entities/AsteroidManager.js';
 import { InputHandler } from '../utilities/InputHandler.js';
 import { Explosion } from '../entities/Explosion.js';
+import { GLTFLoader } from '../utilities/ThreeImports.js';
 
 // Debug mode flag - set to false to disable debug features
 const DEBUG_MODE = false;
@@ -37,6 +38,9 @@ export class Gameplay {
         
         // Set global reference to this game state for explosions to register
         window.gameState = this;
+        
+        // Preload explosion model to avoid delays when first explosion occurs
+        this.preloadExplosionModel();
         
         // Update game config with actual screen dimensions
         this.updateScreenDimensions();
@@ -541,5 +545,35 @@ export class Gameplay {
         setTimeout(() => {
             msgElement.style.display = 'none';
         }, duration);
+    }
+    
+    // Preload the explosion model for faster display
+    preloadExplosionModel() {
+        if (Explosion.modelCache) return; // Already preloaded
+        
+        console.log('Preloading explosion model...');
+        const loader = new GLTFLoader();
+        loader.load(
+            'assets/models/explosion.glb',
+            (gltf) => {
+                console.log('Explosion model preloaded successfully');
+                Explosion.modelCache = gltf;
+                Explosion.modelLoading = false;
+                
+                // Process any callbacks waiting for the model
+                if (Explosion.modelCallbacks && Explosion.modelCallbacks.length > 0) {
+                    Explosion.modelCallbacks.forEach(callback => callback(gltf));
+                    Explosion.modelCallbacks = [];
+                }
+            },
+            (xhr) => {
+                console.log('Explosion model loading progress: ' + (xhr.loaded / xhr.total * 100) + '%');
+            },
+            (error) => {
+                console.error('Error preloading explosion model:', error);
+                Explosion.modelLoading = false;
+            }
+        );
+        Explosion.modelLoading = true;
     }
 } 

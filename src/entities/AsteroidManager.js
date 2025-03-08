@@ -31,6 +31,13 @@ export class AsteroidManager {
         // Update existing asteroids
         for (let i = this.asteroids.length - 1; i >= 0; i--) {
             const asteroid = this.asteroids[i];
+            
+            // Skip destroyed asteroids
+            if (asteroid.isDestroyed) {
+                this.asteroids.splice(i, 1);
+                continue;
+            }
+            
             const shouldRemove = asteroid.update(deltaTime);
             
             // Check for collision with player
@@ -80,6 +87,13 @@ export class AsteroidManager {
                 
                 for (let j = player.bullets.length - 1; j >= 0; j--) {
                     const bullet = player.bullets[j];
+                    
+                    // Skip destroyed bullets
+                    if (bullet.isDestroyed) {
+                        player.bullets.splice(j, 1);
+                        continue;
+                    }
+                    
                     const bulletPosition = bullet.getPosition();
                     const bulletRadius = 5; // Approximate bullet size radius
                     
@@ -107,7 +121,7 @@ export class AsteroidManager {
                             // Smaller explosion for non-destroying hits
                             try {
                                 // Small explosion at impact point for visual feedback
-                                const smallExplosionSize = asteroid.size * 0.1; // 1/3 of full explosion
+                                const smallExplosionSize = asteroid.size * 0.1; // 1/10 of full explosion
                                 new Explosion(this.scene, impactPoint, smallExplosionSize);
                             } catch (error) {
                                 console.error('Failed to create small impact explosion:', error);

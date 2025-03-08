@@ -24,6 +24,7 @@ export class Asteroid {
         this.health = 100;
         this.hitSphere = null;
         this.hitSphereVisible = GameConfig.asteroid?.debug?.showHitSpheres || false; // Show hit spheres in debug mode
+        this.isDestroyed = false; // Flag to track if asteroid is destroyed
         
         // Add default values in case GameConfig.asteroid is undefined
         const asteroidConfig = GameConfig.asteroid || {};
@@ -193,9 +194,9 @@ export class Asteroid {
             // Use path string instead of import
             'assets/models/asteroid.glb',
             (gltf) => {
-                // Check if container still exists
-                if (!this.container) {
-                    console.warn('Cannot add asteroid model: container is null');
+                // Check if asteroid is destroyed or container doesn't exist
+                if (this.isDestroyed || !this.container) {
+                    console.warn('Cannot add asteroid model: asteroid is destroyed or container is null');
                     return;
                 }
                 
@@ -265,7 +266,7 @@ export class Asteroid {
                 console.error('An error occurred while loading the asteroid model:', error);
                 
                 // Create a simple placeholder if the container is still valid
-                if (this.container) {
+                if (this.container && !this.isDestroyed) {
                     this.createPlaceholderModel();
                 }
             }
@@ -411,6 +412,9 @@ export class Asteroid {
     }
     
     explode(impactPoint = null) {
+        // Mark as destroyed immediately to prevent further collisions
+        this.isDestroyed = true;
+        
         try {
             // Create an explosion using the explosion.glb model
             // Make explosion size directly proportional to asteroid size
@@ -467,7 +471,9 @@ export class Asteroid {
     
     destroy() {
         // Skip if already destroyed
-        if (!this.container) return;
+        if (!this.container || this.isDestroyed) return;
+        
+        this.isDestroyed = true;
         
         // Remove from scene
         if (this.scene) {
@@ -559,7 +565,19 @@ export class Asteroid {
     
     // Check if this asteroid collides with another object
     checkCollision(objectPosition, objectRadius) {
-        if (!this.hitSphere) return false;
+        // Don't check collisions for destroyed asteroids
+        if (this.isDestroyed || !this.container) return false;
+        
+        // If hit sphere isn't created yet, use a basic distance check with container position
+        if (!this.hitSphere) {
+            // Fallback collision detection using container position and size
+            if (!objectPosition || typeof objectPosition.distanceTo !== 'function') {
+                return false;
+            }
+            
+            const distance = this.container.position.distanceTo(objectPosition);
+            return distance < (this.size * 1.2 + objectRadius); // 1.2 matches the hitSphereSize multiplier
+        }
         
         // Get asteroid's world position
         const asteroidPosition = this.getHitSphereWorldPosition();
@@ -584,7 +602,7 @@ export class Asteroid {
         }
         
         // If the hit sphere is visible, color it red when a collision is detected
-        if (this.hitSphereVisible && this.hitSphere) {
+        if (this.hitSphereVisible && this.hitSphere && this.hitSphere.material) {
             const isColliding = distance < (this.hitSphereRadius + objectRadius);
             
             // Change color based on collision state

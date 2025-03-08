@@ -20,7 +20,10 @@ export class Explosion {
         this.container.position.copy(this.position);
         this.scene.add(this.container);
         
-        // Use cached model or load new one
+        // Always create particles first for immediate visual feedback
+        this.createParticleExplosion();
+        
+        // Then try to load the model (will supplement the particles)
         this.initializeModel();
         
         // Register with the Gameplay state for updates if available
@@ -167,6 +170,7 @@ export class Explosion {
         material.emissiveIntensity = baseIntensity + sizeBonus;
     }
     
+    // Enhanced particle explosion for better immediate feedback
     createParticleExplosion() {
         // Fallback explosion using particles
         // Check if container still exists
@@ -177,13 +181,25 @@ export class Explosion {
         
         // Scale particles with explosion size
         const baseParticleCount = 20;
-        const particleCount = Math.min(Math.floor(baseParticleCount * Math.sqrt(this.size)), 50); // Cap at 50 particles
+        const particleCount = Math.min(Math.floor(baseParticleCount * Math.sqrt(this.size)), 60); // Increased max particles
         
         const particles = new THREE.Group();
         
         // Create a particle system with colors based on size
         const baseColor = new THREE.Color(0xff6600);
         const brightColor = new THREE.Color(0xffff00);
+        
+        // Add a bright flash at the center for immediate visual impact
+        const flashGeometry = new THREE.SphereGeometry(this.size * 0.7, 16, 16);
+        const flashMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.9
+        });
+        const flash = new THREE.Mesh(flashGeometry, flashMaterial);
+        particles.add(flash);
+        flash.userData.isFlash = true;
+        flash.userData.flashLifetime = 0.15; // Very short lifetime for the flash
         
         for (let i = 0; i < particleCount; i++) {
             // Particle size varies with explosion size
@@ -204,7 +220,7 @@ export class Explosion {
             const particle = new THREE.Mesh(geometry, material);
             
             // Random position within explosion radius
-            const radius = this.size * 0.5;
+            const radius = this.size * 0.5 * Math.random(); // Start more clustered for better initial visual
             const theta = Math.random() * Math.PI * 2;
             const phi = Math.random() * Math.PI;
             
@@ -250,6 +266,25 @@ export class Explosion {
         // Update particle effect if it exists
         if (this.particles && this.particles.children) {
             this.particles.children.forEach(particle => {
+                // Special handling for the flash
+                if (particle.userData.isFlash) {
+                    particle.userData.flashLifetime -= deltaTime;
+                    if (particle.userData.flashLifetime <= 0) {
+                        particle.scale.set(0, 0, 0); // Hide it
+                    } else {
+                        // Quickly expand and fade the flash
+                        const flashProgress = 1 - (particle.userData.flashLifetime / 0.15);
+                        particle.scale.set(
+                            1 + flashProgress * 0.5,
+                            1 + flashProgress * 0.5,
+                            1 + flashProgress * 0.5
+                        );
+                        particle.material.opacity = 0.9 * (1 - flashProgress);
+                    }
+                    return;
+                }
+                
+                // Regular particle update
                 // Update position
                 particle.position.add(particle.userData.velocity.clone().multiplyScalar(deltaTime));
                 
