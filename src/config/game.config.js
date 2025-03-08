@@ -173,17 +173,17 @@ export const GameConfig = {
     
     // Asteroid settings
     asteroid: {
-        minSpeed: 100,
-        maxSpeed: 200,
-        minSize: 20,
-        maxSize: 45,
-        minRotationSpeed: 0.01,
-        maxRotationSpeed: 0.05,
+        minSpeed: 75,
+        maxSpeed: 150,
+        minSize: 30,
+        maxSize: 100,
+        minRotationSpeed: 0.1,
+        maxRotationSpeed: 0.5,
         spawnRate: 2, // per second
-        spawnDistance: 250,
+        spawnDistance: 50,
         spawnDepth: {
-            min: -80,
-            max: 80
+            min: -50,
+            max: 50
         },
         despawnDistance: -100,
         // Asteroid aesthetics

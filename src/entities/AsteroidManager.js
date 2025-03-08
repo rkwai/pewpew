@@ -75,7 +75,6 @@ export class AsteroidManager {
                     
                     // Explode the asteroid at the impact point
                     asteroid.explode(impactPoint);
-                    this.asteroids.splice(i, 1);
                     continue;
                 }
             }
@@ -89,7 +88,6 @@ export class AsteroidManager {
                     
                     // Skip destroyed bullets
                     if (bullet.isDestroyed) {
-                        player.bullets.splice(j, 1);
                         continue;
                     }
                     
@@ -113,7 +111,6 @@ export class AsteroidManager {
                         if (destroyed) {
                             this.increaseScore(Math.floor(asteroid.size));
                             asteroid.explode(impactPoint);
-                            this.asteroids.splice(i, 1);
                         } else {
                             try {
                                 const smallExplosionSize = asteroid.size * 0.2;
@@ -124,25 +121,24 @@ export class AsteroidManager {
                         }
                         
                         bullet.destroy();
-                        player.bullets.splice(j, 1);
                         
                         bulletHit = true;
                         break;
                     }
                 }
-                
-                // If a bullet hit this asteroid and destroyed it, continue to next asteroid
-                if (bulletHit && i >= this.asteroids.length) {
-                    continue;
-                }
+
+                // remove bullets that are destroyed
+                player.bullets = player.bullets.filter(bullet => !bullet.isDestroyed);
             }
             
-            // Remove if out of bounds
+            // Remove aif out of bounds
             if (shouldRemove) {
                 asteroid.destroy();
-                this.asteroids.splice(i, 1);
             }
         }
+
+        // remove asteroids that are destroyed
+        this.asteroids = this.asteroids.filter(asteroid => !asteroid.isDestroyed);
     }
     
     spawnAsteroid() {

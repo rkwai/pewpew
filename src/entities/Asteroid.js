@@ -29,9 +29,11 @@ export class Asteroid {
         // Add default values in case GameConfig.asteroid is undefined
         const asteroidConfig = GameConfig.asteroid || {};
         this.size = random(
-            asteroidConfig.minSize || 30, 
-            asteroidConfig.maxSize || 80
+            asteroidConfig.minSize || 50, 
+            asteroidConfig.maxSize || 150
         );
+        // set health based on size 
+        this.health = this.size * 2;
         this.speed = random(
             asteroidConfig.minSpeed || 100, 
             asteroidConfig.maxSpeed || 200
@@ -516,12 +518,10 @@ export class Asteroid {
 
     // Create a sphere for collision detection
     createHitSphere() {
-        // We'll make the hit sphere slightly larger than the asteroid size
-        // to ensure collisions are detected properly
-        const hitSphereSize = this.size * 1.2; // 20% larger than the asteroid
+        const hitSphereRadius = this.size / 2; // this
         
         // Create geometry for the hit sphere
-        const hitSphereGeometry = new THREE.SphereGeometry(hitSphereSize, 16, 12);
+        const hitSphereGeometry = new THREE.SphereGeometry(hitSphereRadius, 16, 12);
         
         // Create material - transparent if not in debug mode
         const hitSphereMaterial = new THREE.MeshBasicMaterial({
@@ -541,7 +541,7 @@ export class Asteroid {
         this.container.add(this.hitSphere);
         
         // Store the hit sphere radius for collision detection
-        this.hitSphereRadius = hitSphereSize;
+        this.hitSphereRadius = hitSphereRadius;
         
         console.log(`Created hit sphere with radius ${this.hitSphereRadius} for asteroid (size ${this.size})`);
     }

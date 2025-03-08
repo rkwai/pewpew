@@ -22,7 +22,7 @@ export class Player {
         this.modelLoaded = false;
         this.engineTime = 0;
         this.hitSphere = null;
-        this.hitSphereRadius = 25; // Size of player collision sphere
+        this.hitSphereRadius = 15; // Size of player collision sphere
         this.hitSphereVisible = GameConfig.player?.debug?.showHitSphere || false;
         
         // Create a temporary mesh while model loads
@@ -351,12 +351,14 @@ export class Player {
             // Remove bullets that have exceeded their lifespan
             if (bullet.lifeTime <= 0) {
                 bullet.destroy();
-                this.bullets.splice(i, 1);
             }
         }
+
+        // remove bullets that are destroyed
+        this.bullets = this.bullets.filter(bullet => !bullet.isDestroyed);
     }
     
-    takeDamage(amount, impactPoint = null) {
+    takeDamage(amount) {
         if (this.isInvulnerable) return;
         
         this.health -= amount;
@@ -365,8 +367,7 @@ export class Player {
         // Create explosion effect at the impact point
         if (this.model) {
             try {
-                // Use provided impact point if available, otherwise use hit sphere center
-                const position = impactPoint || this.getHitSpherePosition();
+                const position = this.getHitSpherePosition();
                 
                 // Calculate explosion size based on the player's hit sphere and damage amount
                 // This creates bigger explosions for larger impacts
@@ -381,24 +382,23 @@ export class Player {
                 
                 new Explosion(this.scene, position, explosionSize);
                 
-                // For major hits (damage > 30), add secondary smaller explosions at random offsets
+                // For major hits (damage > 30), add a secondary smaller explosion at a random offset
                 if (amount > 30) {
-                    // Number of secondary explosions based on damage
-                    const secondaryCount = Math.min(Math.floor(amount / 15), 3); // Up to 3 secondary explosions
+                    const offset = new THREE.Vector3(
+                        (Math.random() - 0.5) * this.hitSphereRadius * 0.8,
+                        (Math.random() - 0.5) * this.hitSphereRadius * 0.8, 
+                        (Math.random() - 0.5) * this.hitSphereRadius * 0.8
+                    );
                     
-                    for (let i = 0; i < secondaryCount; i++) {
-                        const offset = new THREE.Vector3(
-                            (Math.random() - 0.5) * this.hitSphereRadius * 0.8,
-                            (Math.random() - 0.5) * this.hitSphereRadius * 0.8, 
-                            (Math.random() - 0.5) * this.hitSphereRadius * 0.8
-                        );
-                        
-                        const secondaryPosition = position.clone().add(offset);
-                        const secondarySize = explosionSize * (0.4 + Math.random() * 0.3); // 40-70% of main size
-                        
-                        // Create secondary explosions immediately
-                        new Explosion(this.scene, secondaryPosition, secondarySize);
-                    }
+                    const secondaryPosition = position.clone().add(offset);
+                    const secondarySize = explosionSize * 0.6; // 60% of the main explosion size
+                    
+                    // Small delay for secondary explosion
+                    setTimeout(() => {
+                        if (this.scene) { // Check if scene still exists
+                            new Explosion(this.scene, secondaryPosition, secondarySize);
+                        }
+                    }, 100);
                 }
             } catch (error) {
                 console.error('Failed to create explosion for player impact:', error);
