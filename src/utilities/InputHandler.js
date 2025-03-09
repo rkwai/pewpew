@@ -7,16 +7,21 @@ export class InputHandler {
             ArrowRight: false,
             Space: false,
             KeyZ: false, // For special abilities
-            KeyH: false  // For toggling hit spheres
+            KeyH: false,  // For toggling hit spheres
+            Enter: false  // For starting game and pausing/unpausing
         };
         
         // Track keys that should only trigger once when pressed
         this.keysPressedOnce = {
-            KeyH: false
+            KeyH: false,
+            Enter: false
         };
         
         // Event callbacks for debug features
         this.onToggleHitSpheres = null;
+        
+        // Event callback for Enter key
+        this.onEnterPress = null;
         
         // Bind event handlers
         window.addEventListener('keydown', this.handleKeyDown.bind(this));
@@ -26,12 +31,21 @@ export class InputHandler {
     handleKeyDown(event) {
         // Check if the pressed key is one we're tracking
         if (this.keys.hasOwnProperty(event.code)) {
+            // Special handling for Enter key - always call handler on press, not just on first press
+            if (event.code === 'Enter' && this.onEnterPress) {
+                console.log("Enter key pressed, calling handler");
+                this.onEnterPress();
+                event.preventDefault();
+                return;
+            }
+            
             // Only set to true if not already pressed (for "pressed once" keys)
             if (this.keysPressedOnce.hasOwnProperty(event.code) && !this.keys[event.code]) {
                 // Handle "once" key presses
                 if (event.code === 'KeyH' && this.onToggleHitSpheres) {
                     this.onToggleHitSpheres();
                 }
+                
                 this.keysPressedOnce[event.code] = true;
             }
             

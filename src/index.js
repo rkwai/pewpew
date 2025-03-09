@@ -40,13 +40,31 @@ function ensureDirectoryStructure() {
     }
 }
 
+// Game instance
+let game = null;
+
 // Wait for DOM to be fully loaded
 document.addEventListener('DOMContentLoaded', () => {
+    console.log("DOM loaded, initializing game");
+    
     // Check directory structure
     ensureDirectoryStructure();
     
+    // Create the loading screen (will be hidden by the game once loaded)
+    const loadingElement = document.getElementById('loading');
+    if (loadingElement) {
+        loadingElement.style.display = 'block';
+    }
+    
+    // Hide the HUD initially (will be shown by GameStateManager)
+    const hudElement = document.getElementById('hud');
+    if (hudElement) {
+        hudElement.style.display = 'none';
+    }
+    
     // Create and start the game
-    const game = new Gameplay();
+    game = new Gameplay();
+    console.log("Game initialized");
     
     // Handle cleanup on page unload
     window.addEventListener('beforeunload', () => {

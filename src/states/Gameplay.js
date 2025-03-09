@@ -5,6 +5,7 @@ import { AsteroidManager } from '../entities/AsteroidManager.js';
 import { InputHandler } from '../utilities/InputHandler.js';
 import { Explosion } from '../entities/Explosion.js';
 import { GLTFLoader } from '../utilities/ThreeImports.js';
+import { GameStateManager, GameState } from './GameStateManager.js';
 
 // Debug mode flag - set to false to disable debug features
 const DEBUG_MODE = false;
@@ -19,6 +20,7 @@ export class Gameplay {
         this.inputHandler = null;
         this.clock = new THREE.Clock();
         this.isGameOver = false;
+        this.isPaused = false;
         this.explosions = []; // Array to track active explosions
         
         this.init();
@@ -147,6 +149,13 @@ export class Gameplay {
         // Create input handler
         this.inputHandler = new InputHandler();
         
+        // Set up enter key handler for pause/unpause
+        this.inputHandler.onEnterPress = () => {
+            if (this.stateManager) {
+                this.stateManager.handleEnterPress();
+            }
+        };
+        
         // Set up debug key handlers
         this.setupDebugHandlers();
         
@@ -155,6 +164,9 @@ export class Gameplay {
         
         // Create asteroid manager
         this.asteroidManager = new AsteroidManager(this.scene);
+        
+        // Create game state manager
+        this.stateManager = new GameStateManager(this);
         
         // Handle window resize
         window.addEventListener('resize', this.onWindowResize.bind(this));
@@ -238,10 +250,14 @@ export class Gameplay {
     }
     
     animate() {
+        // Continue animation loop
         requestAnimationFrame(this.animate.bind(this));
         
-        if (this.isGameOver) {
-            this.renderer.render(this.scene, this.camera);
+        // Always render the scene to keep visuals on screen
+        this.renderer.render(this.scene, this.camera);
+        
+        // Skip all other updates if paused or game over
+        if (this.isPaused || this.isGameOver) {
             return;
         }
         
@@ -253,7 +269,9 @@ export class Gameplay {
             
             // Check if player is dead
             if (this.player.health <= 0) {
+                console.log("Player health is zero - game over triggered");
                 this.gameOver();
+                return; // Stop further updates
             }
         }
         
@@ -270,7 +288,7 @@ export class Gameplay {
             }
         }
         
-        // Update starfield (scrolling effect) - now moves from right to left
+        // Update starfield (scrolling effect)
         if (this.starfield) {
             this.starfield.position.x -= 30 * deltaTime; // Move stars left
             
@@ -279,9 +297,6 @@ export class Gameplay {
                 this.starfield.position.x = 0;
             }
         }
-        
-        // Render scene
-        this.renderer.render(this.scene, this.camera);
     }
     
     onWindowResize() {
@@ -297,40 +312,61 @@ export class Gameplay {
     }
     
     gameOver() {
+        if (this.isGameOver) return; // Prevent multiple calls
+        
+        console.log("Game over sequence initiated");
+        
+        // Set the game state to game over
         this.isGameOver = true;
         
-        // Create game over text
-        const gameOverDiv = document.createElement('div');
-        gameOverDiv.style.position = 'absolute';
-        gameOverDiv.style.top = '50%';
-        gameOverDiv.style.left = '50%';
-        gameOverDiv.style.transform = 'translate(-50%, -50%)';
-        gameOverDiv.style.color = 'white';
-        gameOverDiv.style.fontSize = '48px';
-        gameOverDiv.style.fontFamily = 'Arial, sans-serif';
-        gameOverDiv.style.textAlign = 'center';
-        gameOverDiv.innerHTML = `
-            <div>GAME OVER</div>
-            <div style="font-size: 24px; margin-top: 20px;">Score: ${this.asteroidManager.getScore()}</div>
-            <div style="font-size: 18px; margin-top: 40px;">Press SPACE to restart</div>
-        `;
-        document.body.appendChild(gameOverDiv);
+        // Stop the game clock
+        this.clock.stop();
         
-        // Add event listener for restart
-        const restartHandler = (event) => {
-            if (event.code === 'Space') {
-                document.body.removeChild(gameOverDiv);
-                window.removeEventListener('keydown', restartHandler);
-                this.restart();
+        // Make sure we have a player and asteroid manager before accessing them
+        if (!this.player || !this.asteroidManager) {
+            console.error("Missing player or asteroidManager in gameOver()");
+            return;
+        }
+        
+        // Create a final explosion for the player ship
+        try {
+            const playerPosition = this.player.getPosition();
+            // Create a large explosion at the player's position
+            const explosionSize = this.player.hitSphereRadius * 2;
+            new Explosion(this.scene, playerPosition, explosionSize);
+            
+            // Hide the player model
+            if (this.player.model) {
+                this.player.model.visible = false;
             }
-        };
+            if (this.player.tempMesh) {
+                this.player.tempMesh.visible = false;
+            }
+            if (this.player.hitSphere) {
+                this.player.hitSphere.visible = false;
+            }
+        } catch (error) {
+            console.error("Error creating final player explosion:", error);
+        }
         
-        window.addEventListener('keydown', restartHandler);
+        // Stop all asteroids from moving (we won't update them anymore due to isGameOver)
+        
+        // Use state manager to show game over screen
+        if (this.stateManager) {
+            const score = this.asteroidManager.getScore();
+            console.log(`Game over with score: ${score}`);
+            this.stateManager.gameOver(score);
+        } else {
+            console.error("Missing stateManager in gameOver()");
+        }
     }
     
     restart() {
-        // Reset game state
+        console.log("Game restart initiated");
+        
+        // Reset game state flags
         this.isGameOver = false;
+        this.isPaused = false;
         
         // Reset player
         if (this.player) {
@@ -343,10 +379,24 @@ export class Gameplay {
             this.asteroidManager.reset();
         }
         
+        // Clear all explosions
+        for (let i = this.explosions.length - 1; i >= 0; i--) {
+            if (this.explosions[i].destroy) {
+                this.explosions[i].destroy();
+            }
+        }
+        this.explosions = [];
+        
         // Reset HUD
         document.getElementById('health').innerText = 'Health: 100%';
         document.getElementById('score').innerText = 'Score: 0';
         document.getElementById('hud').style.display = 'block';
+        
+        // Reset and start the clock
+        this.clock = new THREE.Clock(); // Create a fresh clock
+        this.clock.start();
+        
+        console.log("Game restart completed - new game started");
     }
     
     destroy() {
@@ -359,16 +409,9 @@ export class Gameplay {
             this.asteroidManager.reset();
         }
         
-        // Clean up explosions
-        for (const explosion of this.explosions) {
-            if (explosion.destroy) {
-                explosion.destroy();
-            }
+        if (this.stateManager) {
+            this.stateManager.destroy();
         }
-        this.explosions = [];
-        
-        // Remove global reference
-        window.gameState = null;
         
         if (this.inputHandler) {
             this.inputHandler.destroy();
@@ -377,10 +420,15 @@ export class Gameplay {
         // Remove event listeners
         window.removeEventListener('resize', this.onWindowResize);
         
-        // Remove renderer
-        if (this.renderer) {
-            document.body.removeChild(this.renderer.domElement);
+        // Remove renderer from DOM
+        if (this.renderer && this.renderer.domElement) {
+            if (document.body.contains(this.renderer.domElement)) {
+                document.body.removeChild(this.renderer.domElement);
+            }
         }
+        
+        // Clear game state reference
+        window.gameState = null;
     }
     
     // New method to update screen dimensions and related values
@@ -575,5 +623,30 @@ export class Gameplay {
             }
         );
         Explosion.modelLoading = true;
+    }
+
+    // Add pause and resume methods
+    pause() {
+        // Don't pause if already paused or game over
+        if (this.isPaused || this.isGameOver) {
+            console.log("Cannot pause: game is already paused or game over");
+            return;
+        }
+        
+        console.log("Game paused");
+        this.isPaused = true;
+        this.clock.stop(); // Stop the clock to prevent time accumulation while paused
+    }
+    
+    resume() {
+        // Don't resume if not paused or game is over
+        if (!this.isPaused || this.isGameOver) {
+            console.log("Cannot resume: game is not paused or game is over");
+            return;
+        }
+        
+        console.log("Game resumed");
+        this.isPaused = false;
+        this.clock.start(); // Restart the clock
     }
 } 

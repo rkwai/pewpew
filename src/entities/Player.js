@@ -362,7 +362,14 @@ export class Player {
         if (this.isInvulnerable) return;
         
         this.health -= amount;
-        document.getElementById('health').innerText = `Health: ${this.health}%`;
+        
+        // Ensure health doesn't go below 0
+        if (this.health < 0) {
+            this.health = 0;
+        }
+        
+        // Update health display
+        document.getElementById('health').innerText = `Health: ${Math.round(this.health)}%`;
         
         // Create explosion effect at the impact point
         if (this.model) {
@@ -409,9 +416,14 @@ export class Player {
         this.isInvulnerable = true;
         this.invulnerabilityTimer = 2.0; // 2 seconds of invulnerability
         
+        // Log on low health
+        if (this.health > 0 && this.health <= 30) {
+            console.log(`WARNING: Low player health: ${this.health}%`);
+        }
+        
+        // Let the game know when player is dead - health check is in Gameplay.animate()
         if (this.health <= 0) {
-            this.health = 0;
-            // Game over logic would go here
+            console.log("Player health is zero - death condition triggered");
         }
     }
     
