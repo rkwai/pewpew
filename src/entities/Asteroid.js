@@ -1,6 +1,6 @@
 import { THREE, GLTFLoader } from '../utilities/ThreeImports.js';
 import { GameConfig } from '../config/game.config.js';
-import { random, randomInt, enhanceMaterial, lerp, smoothStep, easeInOut, smoothOscillate } from '../utilities/Utils.js';
+import { random, randomInt, enhanceMaterial, lerp, smoothStep, easeInOut, smoothOscillate, checkCollision } from '../utilities/Utils.js';
 import { Explosion } from './Explosion.js';
 
 // Remove direct import and use path string instead
@@ -408,6 +408,13 @@ export class Asteroid {
         return position.x < despawnDistance;
     }
     
+    // This method is called by external entities to request damage to be applied
+    receiveDamage(amount) {
+        // Apply damage internally and return whether the asteroid was destroyed
+        return this.takeDamage(amount);
+    }
+    
+    // Private method to handle damage internally
     takeDamage(amount) {
         this.health -= amount;
         
@@ -575,32 +582,24 @@ export class Asteroid {
             return false;
         }
         
-        // Get asteroid's world position
-        const asteroidPosition = this.getHitSphereWorldPosition();
+        // Create a simple object with position and radius for the other object
+        const otherObject = {
+            position: objectPosition,
+            radius: objectRadius
+        };
         
-        // The objectPosition parameter is already a Vector3, no need to get .position
-        // Just make sure it's valid before using it
-        if (!objectPosition || typeof objectPosition.distanceTo !== 'function') {
-            console.warn('Invalid position passed to checkCollision');
-            return false;
-        }
-        
-        // Calculate distance
-        const distance = asteroidPosition.distanceTo(objectPosition);
+        // Use the utility function for collision detection
+        const isColliding = checkCollision(this, otherObject);
         
         // For debugging
         if (GameConfig.asteroid?.debug?.logCollisions) {
             console.log(
-                `Collision check: distance=${distance.toFixed(2)}, ` +
-                `threshold=${(this.hitSphereRadius + objectRadius).toFixed(2)}, ` +
-                `result=${distance < (this.hitSphereRadius + objectRadius)}`
+                `Collision check: result=${isColliding}`
             );
         }
         
         // If the hit sphere is visible, color it red when a collision is detected
         if (this.hitSphereVisible && this.hitSphere && this.hitSphere.material) {
-            const isColliding = distance < (this.hitSphereRadius + objectRadius);
-            
             // Change color based on collision state
             if (isColliding) {
                 this.hitSphere.material.color.set(0xff0000); // Red when colliding
@@ -609,7 +608,6 @@ export class Asteroid {
             }
         }
         
-        // Check if the distance is less than sum of radii
-        return distance < (this.hitSphereRadius + objectRadius);
+        return isColliding;
     }
 } 

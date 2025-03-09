@@ -387,8 +387,7 @@ export class Gameplay {
         }
         this.explosions = [];
         
-        // Reset HUD
-        document.getElementById('health').innerText = 'Health: 100%';
+        // Reset HUD - let the player handle its own health display
         document.getElementById('score').innerText = 'Score: 0';
         document.getElementById('hud').style.display = 'block';
         
@@ -550,9 +549,7 @@ export class Gameplay {
                 
                 // Update player hit sphere
                 if (this.player && this.player.hitSphere) {
-                    this.player.hitSphereVisible = GameConfig.player.debug.showHitSphere;
-                    this.player.hitSphere.material.opacity = GameConfig.player.debug.showHitSphere ? 0.3 : 0;
-                    this.player.hitSphere.material.wireframe = GameConfig.player.debug.showHitSphere;
+                    this.player.updateHitSphereVisibility(GameConfig.player.debug.showHitSphere);
                 }
                 
                 console.log(

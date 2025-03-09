@@ -101,21 +101,23 @@ export const GameConfig = {
         speed: 300, // pixels per second
         health: 100,
         shootCooldown: 0.3, // seconds
+        hitSphereRadius: 15, // Size of player collision sphere
+        hitSphereVisible: false, // Whether to show the hit sphere
         boundaries: {
             xMin: -250,  // Left limit
             xMax: 250,  // Right limit
             yMin: -150,  // Bottom limit
             yMax: 150    // Top limit
         },
+        // Debug settings
+        debug: {
+            showHitSphere: false // Whether to show the hit sphere in debug mode
+        },
         // Default position at left side of screen
         defaultPosition: {
             x: -300, // New default X position
             y: 0,
             z: 0
-        },
-        // Debug settings
-        debug: {
-            showHitSphere: false // Set to true to show player hit sphere
         },
         // Ship aesthetics
         aesthetics: {

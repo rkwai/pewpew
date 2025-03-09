@@ -13,26 +13,81 @@ export function randomInt(min, max) {
 }
 
 /**
- * Check if two objects collide (basic sphere collision)
+ * Check if two objects collide using sphere collision detection
+ * This is the single source of truth for collision detection in the game
+ * 
+ * @param {Object} obj1 - First object to check
+ * @param {Object} obj2 - Second object to check
+ * @returns {boolean} - Whether the objects are colliding
+ * 
+ * The function supports different object types:
+ * 1. Objects with getHitSpherePosition/getHitSphereWorldPosition and hitSphereRadius properties
+ * 2. Objects with position and radius properties
+ * 3. Three.js objects with position and geometry.boundingSphere
  */
 export function checkCollision(obj1, obj2) {
-    if (!obj1.position || !obj2.position || !obj1.geometry || !obj2.geometry) {
-        return false;
+    // Get position and radius for first object
+    let pos1, radius1;
+    
+    // Case 1: Object has getHitSpherePosition or getHitSphereWorldPosition method
+    if (typeof obj1.getHitSpherePosition === 'function') {
+        pos1 = obj1.getHitSpherePosition();
+        radius1 = obj1.hitSphereRadius;
+    } else if (typeof obj1.getHitSphereWorldPosition === 'function') {
+        pos1 = obj1.getHitSphereWorldPosition();
+        radius1 = obj1.hitSphereRadius;
+    }
+    // Case 2: Object has position and radius directly
+    else if (obj1.position && obj1.radius !== undefined) {
+        pos1 = obj1.position;
+        radius1 = obj1.radius;
+    }
+    // Case 3: Three.js object with geometry.boundingSphere
+    else if (obj1.position && obj1.geometry && obj1.geometry.boundingSphere) {
+        pos1 = obj1.position;
+        radius1 = obj1.geometry.boundingSphere.radius * (obj1.scale ? obj1.scale.x : 1);
+    }
+    // Invalid object
+    else {
+        throw new Error('Invalid object passed to checkCollision: missing position or radius information');
     }
     
-    // Get bounding spheres
-    const sphere1 = obj1.geometry.boundingSphere;
-    const sphere2 = obj2.geometry.boundingSphere;
+    // Get position and radius for second object
+    let pos2, radius2;
     
-    if (!sphere1 || !sphere2) {
-        return false;
+    // Case 1: Object has getHitSpherePosition or getHitSphereWorldPosition method
+    if (typeof obj2.getHitSpherePosition === 'function') {
+        pos2 = obj2.getHitSpherePosition();
+        radius2 = obj2.hitSphereRadius;
+    } else if (typeof obj2.getHitSphereWorldPosition === 'function') {
+        pos2 = obj2.getHitSphereWorldPosition();
+        radius2 = obj2.hitSphereRadius;
+    }
+    // Case 2: Object has position and radius directly
+    else if (obj2.position && obj2.radius !== undefined) {
+        pos2 = obj2.position;
+        radius2 = obj2.radius;
+    }
+    // Case 3: Three.js object with geometry.boundingSphere
+    else if (obj2.position && obj2.geometry && obj2.geometry.boundingSphere) {
+        pos2 = obj2.position;
+        radius2 = obj2.geometry.boundingSphere.radius * (obj2.scale ? obj2.scale.x : 1);
+    }
+    // Invalid object
+    else {
+        throw new Error('Invalid object passed to checkCollision: missing position or radius information');
+    }
+    
+    // Ensure we have valid positions and radii
+    if (!pos1 || !pos2 || radius1 === undefined || radius2 === undefined) {
+        throw new Error('Failed to extract position or radius from objects');
     }
     
     // Calculate distance between centers
-    const distance = obj1.position.distanceTo(obj2.position);
+    const distance = pos1.distanceTo(pos2);
     
     // Check if the distance is less than the sum of radii
-    return distance < (sphere1.radius * obj1.scale.x + sphere2.radius * obj2.scale.x);
+    return distance < (radius1 + radius2);
 }
 
 /**

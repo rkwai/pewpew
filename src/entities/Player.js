@@ -22,38 +22,40 @@ export class Player {
         this.modelLoaded = false;
         this.engineTime = 0;
         this.hitSphere = null;
-        this.hitSphereRadius = 15; // Size of player collision sphere
-        this.hitSphereVisible = GameConfig.player?.debug?.showHitSphere || false;
+        this.hitSphereRadius = GameConfig.player.hitSphereRadius || 15;
+        // Use debug setting if available, otherwise use the default visibility
+        this.hitSphereVisible = (GameConfig.player.debug && GameConfig.player.debug.showHitSphere) || 
+                               GameConfig.player.hitSphereVisible || 
+                               false;
         
+        // Create a temporary mesh until the model loads
+        this.createTempMesh();
+        
+        // Load the player model
+        this.loadModel();
+        
+        // Initialize health display
+        this.updateHealthDisplay();
+        
+        // Engine effects removed
+    }
+    
+    // Create a temporary mesh until the model loads
+    createTempMesh() {
         // Create a temporary mesh while model loads
-        const geometry = new THREE.BoxGeometry(30 * 10, 10 * 10, 50 * 10);
+        const geometry = new THREE.BoxGeometry(30, 10, 50);
         const material = new THREE.MeshPhongMaterial({ 
-            color: GameConfig.player.aesthetics.placeholder.color,
-            emissive: GameConfig.player.aesthetics.placeholder.emissive,
-            emissiveIntensity: GameConfig.player.aesthetics.placeholder.emissiveIntensity,
-            shininess: GameConfig.player.aesthetics.placeholder.shininess
+            color: 0x3333ff,
+            transparent: true,
+            opacity: 0.5
         });
+        
         this.tempMesh = new THREE.Mesh(geometry, material);
-        
-        // Position using the values from GameConfig
-        let posX = GameConfig.player.defaultPosition.x;
-        let posY = GameConfig.player.defaultPosition.y;
-        let posZ = GameConfig.player.defaultPosition.z;
-        
-        // Apply position
-        this.tempMesh.position.set(posX, posY, posZ);
-        
-        console.log(`Player initial position from config: (${posX}, ${posY}, ${posZ})`);
-        
-        scene.add(this.tempMesh);
+        this.tempMesh.position.set(-200, 0, 0); // Start on left side
+        this.scene.add(this.tempMesh);
         
         // Create hit sphere for collision detection
         this.createHitSphere();
-        
-        // Load the actual model
-        this.loadModel();
-        
-        // Engine effects removed
     }
     
     // Create hit sphere for player collision detection
@@ -358,9 +360,17 @@ export class Player {
         this.bullets = this.bullets.filter(bullet => !bullet.isDestroyed);
     }
     
-    takeDamage(amount) {
-        if (this.isInvulnerable) return;
+    // This method is called by external entities to request damage to be applied
+    receiveDamage(amount, impactPoint = null) {
+        if (this.isInvulnerable) return false;
         
+        // Apply damage internally
+        this.takeDamage(amount, impactPoint);
+        return true;
+    }
+    
+    // Private method to handle damage internally
+    takeDamage(amount, impactPoint = null) {
         this.health -= amount;
         
         // Ensure health doesn't go below 0
@@ -369,12 +379,12 @@ export class Player {
         }
         
         // Update health display
-        document.getElementById('health').innerText = `Health: ${Math.round(this.health)}%`;
+        this.updateHealthDisplay();
         
         // Create explosion effect at the impact point
         if (this.model) {
             try {
-                const position = this.getHitSpherePosition();
+                const position = impactPoint || this.getHitSpherePosition();
                 
                 // Calculate explosion size based on the player's hit sphere and damage amount
                 // This creates bigger explosions for larger impacts
@@ -458,5 +468,20 @@ export class Player {
             bullet.destroy();
         }
         this.bullets = [];
+    }
+    
+    // Update the health display
+    updateHealthDisplay() {
+        document.getElementById('health').innerText = `Health: ${Math.round(this.health)}%`;
+    }
+    
+    // Update hit sphere visibility
+    updateHitSphereVisibility(isVisible) {
+        this.hitSphereVisible = isVisible;
+        
+        if (this.hitSphere && this.hitSphere.material) {
+            this.hitSphere.material.opacity = isVisible ? 0.3 : 0;
+            this.hitSphere.material.wireframe = isVisible;
+        }
     }
 } 

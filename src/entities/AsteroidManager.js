@@ -45,8 +45,14 @@ export class AsteroidManager {
                 const playerPosition = player.getHitSpherePosition();
                 const playerRadius = player.hitSphereRadius || 20; // Use hit sphere radius or fallback
                 
-                // Use the asteroid's hit sphere for collision detection
-                if (asteroid.checkCollision(playerPosition, playerRadius)) {
+                // Create a simple object with position and radius for the player
+                const playerObject = {
+                    position: playerPosition,
+                    radius: playerRadius
+                };
+                
+                // Use the utility function for collision detection
+                if (checkCollision(asteroid, playerObject)) {
                     if (GameConfig.asteroid?.debug?.logCollisions) {
                         console.log('Player collision detected!');
                     }
@@ -70,8 +76,8 @@ export class AsteroidManager {
                         asteroidSurfacePoint, playerSurfacePoint
                     ).multiplyScalar(0.5);
                     
-                    // Pass damage amount and impact point to player
-                    player.takeDamage(20, impactPoint);
+                    // Request damage to be applied to player
+                    player.receiveDamage(20, impactPoint);
                     
                     // Explode the asteroid at the impact point
                     asteroid.explode(impactPoint);
@@ -94,9 +100,16 @@ export class AsteroidManager {
                     const bulletPosition = bullet.getPosition();
                     const bulletRadius = 5; // Approximate bullet size radius
                     
-                    // Use asteroid's hit sphere for collision detection with bullets
-                    if (asteroid.checkCollision(bulletPosition, bulletRadius)) {
-                        const destroyed = asteroid.takeDamage(50);
+                    // Create a simple object with position and radius for the bullet
+                    const bulletObject = {
+                        position: bulletPosition,
+                        radius: bulletRadius
+                    };
+                    
+                    // Use the utility function for collision detection
+                    if (checkCollision(asteroid, bulletObject)) {
+                        // Request damage to be applied to asteroid
+                        const destroyed = asteroid.receiveDamage(50);
                         
                         // Create explosion at the exact point of impact (bullet position)
                         const asteroidPosition = asteroid.getPosition();
@@ -131,7 +144,7 @@ export class AsteroidManager {
                 player.bullets = player.bullets.filter(bullet => !bullet.isDestroyed);
             }
             
-            // Remove aif out of bounds
+            // Remove if out of bounds
             if (shouldRemove) {
                 asteroid.destroy();
             }
