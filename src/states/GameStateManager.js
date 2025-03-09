@@ -152,6 +152,9 @@ export class GameStateManager {
         // Ensure menu is visible
         this.menuOverlay.style.display = 'flex';
         this.pauseOverlay.style.display = 'none';
+
+        // Pause the game
+        this.gameplayInstance.pause();
     }
     
     handleEnterPress() {
