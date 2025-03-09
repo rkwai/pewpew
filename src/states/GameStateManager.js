@@ -172,9 +172,14 @@ export class GameStateManager {
                 
             case GameState.GAME_OVER:
                 console.log("Enter pressed in GAME_OVER state - starting new game");
-                // We need to force a full restart
-                this.currentState = GameState.MENU; // Reset to menu state first
-                this.startGame(); // Then start a new game
+                // Call restart() on the gameplayInstance to properly reset the game state
+                if (this.gameplayInstance && typeof this.gameplayInstance.restart === 'function') {
+                    this.gameplayInstance.restart();
+                }
+                // Reset to menu state first
+                this.currentState = GameState.MENU;
+                // Then start a new game which will hide menus and show gameplay
+                this.startGame();
                 break;
                 
             default:

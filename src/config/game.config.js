@@ -181,10 +181,6 @@ export const GameConfig = {
         maxRotationSpeed: 0.5,
         spawnRate: 2, // per second
         spawnDistance: 50,
-        spawnDepth: {
-            min: -50,
-            max: 50
-        },
         despawnDistance: -100,
         // Asteroid aesthetics
         aesthetics: {

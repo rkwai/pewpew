@@ -362,7 +362,7 @@ export class Gameplay {
     }
     
     restart() {
-        console.log("Game restart initiated");
+        console.log("Game restart initiated, previous state - isGameOver:", this.isGameOver);
         
         // Reset game state flags
         this.isGameOver = false;
@@ -396,7 +396,7 @@ export class Gameplay {
         this.clock = new THREE.Clock(); // Create a fresh clock
         this.clock.start();
         
-        console.log("Game restart completed - new game started");
+        console.log("Game restart completed - new game started, current state - isGameOver:", this.isGameOver);
     }
     
     destroy() {

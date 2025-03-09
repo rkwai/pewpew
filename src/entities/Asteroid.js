@@ -28,6 +28,7 @@ export class Asteroid {
         
         // Add default values in case GameConfig.asteroid is undefined
         const asteroidConfig = GameConfig.asteroid || {};
+        const playerConfig = GameConfig.player || {};
         this.size = random(
             asteroidConfig.minSize || 50, 
             asteroidConfig.maxSize || 150
@@ -58,13 +59,11 @@ export class Asteroid {
             const windowWidth = window.innerWidth;
             const spawnX = windowWidth + 100; // Spawn just off-screen to the right
             
-            // Check if spawnDepth exists, provide defaults if not
-            const spawnDepth = (asteroidConfig.spawnDepth || { min: -100, max: 100 });
-            
+            // Set position with Z fixed at 0 for 2D gameplay
             this.container.position.set(
                 spawnX,
-                random(-70, 70),
-                random(spawnDepth.min, spawnDepth.max)
+                random(playerConfig.minSpawnY || -70, playerConfig.maxSpawnY || 70),
+                0 // Fixed at 0 to create a 2D gameplay plane
             );
             
             console.log('Asteroid spawned at:', this.container.position);
@@ -152,7 +151,6 @@ export class Asteroid {
                     angle: 0,
                     speed: random(1, 2), // Slower for smoother movement
                     initialY: position.y,
-                    initialZ: position.z,
                     time: 0
                 };
                 
@@ -341,11 +339,12 @@ export class Asteroid {
                 // Create a spiraling motion with smooth transitions
                 this.patternParams.angle += deltaTime * this.patternParams.speed;
                 
-                // Use smoother sine and cosine for spiral movement
+                // Use smoother sine and cosine for spiral movement but only in the y-axis
+                // Keep z fixed at 0 for 2D gameplay
                 position.y = this.patternParams.initialY + 
                     Math.sin(this.patternParams.angle) * this.patternParams.radius;
-                position.z = this.patternParams.initialZ + 
-                    Math.cos(this.patternParams.angle) * this.patternParams.radius;
+                // Remove z modification to maintain 2D plane
+                position.z = 0;
                 break;
 
             case MOVEMENT_PATTERNS.BOUNCE:
@@ -385,9 +384,12 @@ export class Asteroid {
                 // Add subtle y-axis variation for more natural movement
                 position.y = this.patternParams.initialY + 
                     Math.sin(this.patternParams.time * 0.5) * this.patternParams.yVariation;
-                position.z = this.patternParams.initialZ;
+                position.z = 0; // Always keep z=0 for 2D gameplay
                 break;
         }
+
+        // Force z=0 as a safety measure to ensure 2D gameplay regardless of movement pattern
+        position.z = 0;
 
         // Update the container position which will move the model with it
         this.container.position.set(position.x, position.y, position.z);
