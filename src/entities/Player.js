@@ -5,6 +5,8 @@ import { Explosion } from './Explosion.js';
 import { ModelLoader } from '../utilities/ModelLoader.js';
 import { BulletManager } from './BulletManager.js';
 import { UIManager } from '../states/UIManager.js';
+import { Events } from '../utilities/EventSystem.js';
+import { Store, ActionTypes } from '../utilities/GameStore.js';
 
 /**
  * Player class representing the user-controlled spaceship
@@ -44,6 +46,38 @@ export class Player {
         
         // Initialize health display
         this.updateHealthDisplay();
+        
+        // Subscribe to store updates
+        this.unsubscribe = Events.on('STORE_UPDATED', (data) => {
+            this.handleStoreUpdate(data);
+        });
+        
+        // Set initial state in store
+        Store.dispatch({
+            type: ActionTypes.PLAYER_TAKE_DAMAGE,
+            payload: 0 // No damage, just initialize state
+        });
+    }
+    
+    /**
+     * Handle store updates
+     * @param {Object} data - Data from store update event
+     */
+    handleStoreUpdate(data) {
+        const { action, state } = data;
+        
+        // Only handle actions that affect the player
+        switch (action.type) {
+            case ActionTypes.GAME_RESTART:
+                this.resetPlayer();
+                break;
+                
+            case ActionTypes.PLAYER_RESPAWN:
+                this.setInvulnerable(true);
+                this._health = GameConfig.player.health;
+                this.updateHealthDisplay();
+                break;
+        }
     }
     
     /**
@@ -176,7 +210,7 @@ export class Player {
      * @returns {THREE.Vector3} Hit sphere position
      */
     getHitSpherePosition() {
-        return this.hitSphere ? this.hitSphere.position.clone() : this._position.clone();
+        return this._position.clone();
     }
     
     /**
@@ -401,9 +435,23 @@ export class Player {
      * Create and shoot a bullet
      */
     shoot() {
+        // Ensure we have a valid position before creating a bullet
+        if (!this._position || typeof this._position.x !== 'number') {
+            console.error('Invalid player position for bullet creation:', this._position);
+            return;
+        }
+        
+        // Create a new bullet position in front of the player
         const bulletPosition = this._position.clone();
+        
         // Offset the bullet spawn position slightly in front (right) of the ship
-        bulletPosition.x += GameConfig.player.bulletOffset?.x || 30;
+        const offsetX = GameConfig.player.bulletOffset?.x || 30;
+        bulletPosition.x += offsetX;
+        
+        // Log the bullet creation position
+        if (GameConfig.bullet?.debug?.logPositions) {
+            console.log(`Creating bullet at position: (${bulletPosition.x}, ${bulletPosition.y}, ${bulletPosition.z})`);
+        }
         
         // Use bullet manager to create bullet
         this.bulletManager.createBullet(bulletPosition);
@@ -437,7 +485,27 @@ export class Player {
      * @param {THREE.Vector3} [impactPoint] - Optional point of impact for effects
      */
     takeDamage(amount, impactPoint = null) {
-        this.setHealth(this.getHealth() - amount);
+        if (this._isInvulnerable) return;
+        
+        // Use store to update health
+        Store.dispatch({
+            type: ActionTypes.PLAYER_TAKE_DAMAGE,
+            payload: amount
+        });
+        
+        // Update local state
+        this._health = Math.max(0, this._health - amount);
+        
+        // Update health display
+        this.updateHealthDisplay();
+        
+        // Check if player died
+        if (this._health <= 0) {
+            this.die();
+        } else {
+            // Make invulnerable briefly
+            this.setInvulnerable(true);
+        }
         
         // Create explosion effect at the impact point
         if (this.model) {
@@ -480,9 +548,6 @@ export class Player {
             }
         }
         
-        // Make player invulnerable for a short time
-        this.setInvulnerable(GameConfig.player.invulnerabilityDuration || 2.0);
-        
         // Log on low health
         if (this.getHealth() > 0 && this.getHealth() <= 30) {
             console.log(`WARNING: Low player health: ${this.getHealth()}%`);
@@ -509,9 +574,18 @@ export class Player {
     }
     
     /**
-     * Destroy the player and clean up resources
+     * Dispose and clean up resources to prevent memory leaks
+     * This is used for final cleanup when the player is destroyed
      */
     destroy() {
+        // Unsubscribe from events
+        if (this.unsubscribe) {
+            this.unsubscribe();
+        }
+        
+        // Clean up bullets
+        this.bulletManager.clear();
+        
         // Remove from scene
         if (this.model) {
             this.scene.remove(this.model);
@@ -533,8 +607,31 @@ export class Player {
             this.hitSphere = null;
         }
         
-        // Clean up bullets
-        this.bulletManager.clear();
+        // Emit event
+        Events.emit('playerDestroyed', { position: this._position.clone() });
+    }
+    
+    /**
+     * Perform per-frame cleanup of resources that are no longer needed
+     * This is called every frame to clean up temporary objects
+     */
+    cleanupResources() {
+        // Call cleanup on bullet manager
+        if (this.bulletManager) {
+            this.bulletManager.cleanupResources();
+        }
+        
+        // Add any other player-specific resource cleanup here
+        
+        // Perform any necessary cleanup on destroyed bullets/effects
+        if (this._destroyedBullets && this._destroyedBullets.length > 0) {
+            this._destroyedBullets = [];
+        }
+        
+        // Clean up temporary effects if any
+        if (this._tempEffects && this._tempEffects.length > 0) {
+            this._tempEffects = this._tempEffects.filter(effect => !effect.isDone);
+        }
     }
     
     /**
@@ -555,5 +652,139 @@ export class Player {
             this.hitSphere.material.opacity = isVisible ? 0.3 : 0;
             this.hitSphere.material.wireframe = isVisible;
         }
+    }
+    
+    /**
+     * Completely dispose of player and all resources
+     */
+    dispose() {
+        // First destroy visual elements
+        this.destroy();
+        
+        // Then dispose of bullet manager
+        if (this.bulletManager) {
+            this.bulletManager.dispose();
+            this.bulletManager = null;
+        }
+        
+        // Emit dispose event
+        Events.emit('player:dispose');
+    }
+    
+    /**
+     * Player death
+     */
+    die() {
+        // Use store to update player state
+        Store.dispatch({
+            type: ActionTypes.PLAYER_DEATH
+        });
+        
+        // Create explosion
+        const explosion = new Explosion();
+        explosion.explode(this.getPosition().x, this.getPosition().y, this.getPosition().z, 2);
+        
+        // Hide player model
+        if (this.model) {
+            this.model.visible = false;
+        }
+        
+        // Emit dead event
+        Events.emit('player:dead', {
+            position: this.getPosition()
+        });
+        
+        // Check if game over
+        const state = Store.getState();
+        if (state.player.lives <= 0) {
+            // Game over - already handled by store
+        } else {
+            // Respawn after a delay
+            setTimeout(() => {
+                this.respawn();
+            }, 2000);
+        }
+    }
+    
+    /**
+     * Respawn the player
+     */
+    respawn() {
+        // Dispatch respawn action
+        Store.dispatch({
+            type: ActionTypes.PLAYER_RESPAWN
+        });
+        
+        // Reset position
+        this._position.set(-200, 0, 0);
+        
+        // Reset health
+        this._health = GameConfig.player.health;
+        this.updateHealthDisplay();
+        
+        // Show model
+        if (this.model) {
+            this.model.visible = true;
+        }
+        
+        // Make invulnerable briefly
+        this.setInvulnerable(true);
+        
+        // Emit respawn event
+        Events.emit('player:respawn', {
+            position: this.getPosition()
+        });
+    }
+    
+    /**
+     * Reset player for new game
+     */
+    resetPlayer() {
+        // Reset position
+        this._position.set(-200, 0, 0);
+        
+        // Reset health
+        this._health = GameConfig.player.health;
+        this.updateHealthDisplay();
+        
+        // Show model
+        if (this.model) {
+            this.model.visible = true;
+        }
+        
+        // Reset invulnerability
+        this.setInvulnerable(false);
+        
+        // Reset velocity
+        this.velocity.set(0, 0, 0);
+        
+        // Reset bullet manager
+        if (this.bulletManager) {
+            this.bulletManager.reset();
+        }
+    }
+
+    /**
+     * Get player's hit sphere position for collision detection
+     * @returns {THREE.Vector3} Position of the hit sphere
+     */
+    getHitSpherePosition() {
+        return this._position.clone();
+    }
+
+    /**
+     * Get the player's position directly
+     * @returns {THREE.Vector3} Player position
+     */
+    getPosition() {
+        return this._position.clone();
+    }
+
+    /**
+     * Get hit sphere in world coordinates
+     * @returns {THREE.Vector3} World position of hit sphere
+     */
+    getHitSphereWorldPosition() {
+        return this.getHitSpherePosition();
     }
 } 

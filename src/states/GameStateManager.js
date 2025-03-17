@@ -1,25 +1,61 @@
-// Game state constants
-export const GameState = {
-    MENU: 'menu',
-    GAMEPLAY: 'gameplay',
-    PAUSED: 'paused',
-    GAME_OVER: 'game_over'
-};
+// Removed GameState enum (now imported from GameStore)
+import { GameState, Store, ActionTypes } from '../utilities/GameStore.js';
+import { Events } from '../utilities/EventSystem.js';
 
 // GameStateManager class to handle state transitions and management
 export class GameStateManager {
     constructor(gameplayInstance) {
-        this.currentState = GameState.MENU;
         this.gameplayInstance = gameplayInstance;
-        this.isPaused = false;
         
         // Create UI elements
         this.createUI();
         
-        // Show the menu at start
+        // Show the menu at start - now dispatch through store
+        Store.dispatch({ type: ActionTypes.GAME_STATE_CHANGE, payload: GameState.MENU });
         this.showMenu();
         
-        console.log("GameStateManager initialized in state:", this.currentState);
+        // Subscribe to store updates
+        this.unsubscribe = Events.on('STORE_UPDATED', (data) => {
+            this.handleStoreUpdate(data);
+        });
+        
+        console.log("GameStateManager initialized in state:", Store.getState().gameState);
+    }
+    
+    /**
+     * Handle store updates
+     * @param {Object} data - Data from store update event
+     */
+    handleStoreUpdate(data) {
+        const { action, state } = data;
+        
+        // Update UI based on state changes
+        switch (action.type) {
+            case ActionTypes.GAME_STATE_CHANGE:
+            case ActionTypes.GAME_START:
+                if (state.gameState === GameState.MENU) {
+                    this.showMenu();
+                } else if (state.gameState === GameState.GAMEPLAY) {
+                    this.showGameplay();
+                }
+                break;
+                
+            case ActionTypes.GAME_PAUSE:
+                this.showPauseOverlay();
+                break;
+                
+            case ActionTypes.GAME_RESUME:
+                this.hidePauseOverlay();
+                break;
+                
+            case ActionTypes.GAME_OVER:
+                this.showGameOverScreen(state.score);
+                break;
+                
+            default:
+                // No UI updates needed for other actions
+                break;
+        }
     }
     
     createUI() {
@@ -74,7 +110,6 @@ export class GameStateManager {
     }
     
     showMenu() {
-        this.currentState = GameState.MENU;
         this.menuOverlay.style.display = 'flex';
         this.pauseOverlay.style.display = 'none';
         
@@ -87,56 +122,70 @@ export class GameStateManager {
         console.log("Changed to MENU state");
     }
     
-    startGame() {
-        // Update state
-        this.currentState = GameState.GAMEPLAY;
-        
+    showGameplay() {
         // Hide UI overlays
         this.menuOverlay.style.display = 'none';
         this.pauseOverlay.style.display = 'none';
-        
-        // Check if this is a restart or first start
-        const needsRestart = this.gameplayInstance.isGameOver;
-        
-        // Reset game if it was previously in GAME_OVER state
-        if (needsRestart) {
-            console.log("Starting a new game after game over");
-            this.gameplayInstance.restart();
-        } else {
-            console.log("Starting game for the first time");
-        }
         
         // Show HUD
         const hud = document.getElementById('hud');
         if (hud) {
             hud.style.display = 'block';
         }
+    }
+    
+    showPauseOverlay() {
+        this.pauseOverlay.style.display = 'flex';
+    }
+    
+    hidePauseOverlay() {
+        this.pauseOverlay.style.display = 'none';
+    }
+    
+    startGame() {
+        // Use the store to dispatch game start action
+        Store.dispatch({ type: ActionTypes.GAME_START });
+        
+        // Reset game if it was previously in GAME_OVER state
+        const state = Store.getState();
+        if (state.isGameOver) {
+            console.log("Starting a new game after game over");
+            this.gameplayInstance.restart();
+        } else {
+            console.log("Starting game for the first time");
+        }
         
         console.log("Game started in GAMEPLAY state");
     }
     
     pauseGame() {
-        if (this.currentState === GameState.GAMEPLAY) {
-            this.currentState = GameState.PAUSED;
-            this.pauseOverlay.style.display = 'flex';
+        const state = Store.getState();
+        if (state.gameState === GameState.GAMEPLAY) {
+            Store.dispatch({ type: ActionTypes.GAME_PAUSE });
             this.gameplayInstance.pause();
             console.log("Changed to PAUSED state");
         }
     }
     
     resumeGame() {
-        if (this.currentState === GameState.PAUSED) {
-            this.currentState = GameState.GAMEPLAY;
-            this.pauseOverlay.style.display = 'none';
+        const state = Store.getState();
+        if (state.gameState === GameState.PAUSED) {
+            Store.dispatch({ type: ActionTypes.GAME_RESUME });
             this.gameplayInstance.resume();
             console.log("Changed to GAMEPLAY state (from PAUSED)");
         }
     }
     
     gameOver(score) {
-        this.currentState = GameState.GAME_OVER;
-        console.log("Changed to GAME_OVER state, score:", score);
+        Store.dispatch({ 
+            type: ActionTypes.GAME_OVER,
+            payload: score
+        });
         
+        console.log("Changed to GAME_OVER state, score:", score);
+    }
+    
+    showGameOverScreen(score) {
         // Update the menu overlay to show game over
         this.menuOverlay.innerHTML = `
             <h1 style="font-size: 48px; margin-bottom: 20px;">GAME OVER</h1>
@@ -152,15 +201,13 @@ export class GameStateManager {
         // Ensure menu is visible
         this.menuOverlay.style.display = 'flex';
         this.pauseOverlay.style.display = 'none';
-
-        // Pause the game
-        this.gameplayInstance.pause();
     }
     
     handleEnterPress() {
-        console.log("Enter key pressed in state:", this.currentState);
+        const state = Store.getState();
+        console.log("Enter key pressed in state:", state.gameState);
         
-        switch (this.currentState) {
+        switch (state.gameState) {
             case GameState.MENU:
                 this.startGame();
                 break;
@@ -175,23 +222,30 @@ export class GameStateManager {
                 
             case GameState.GAME_OVER:
                 console.log("Enter pressed in GAME_OVER state - starting new game");
+                // Dispatch restart action
+                Store.dispatch({ type: ActionTypes.GAME_RESTART });
+                
                 // Call restart() on the gameplayInstance to properly reset the game state
                 if (this.gameplayInstance && typeof this.gameplayInstance.restart === 'function') {
                     this.gameplayInstance.restart();
                 }
-                // Reset to menu state first
-                this.currentState = GameState.MENU;
-                // Then start a new game which will hide menus and show gameplay
+                
+                // Start new game
                 this.startGame();
                 break;
                 
             default:
-                console.error("Unknown game state:", this.currentState);
+                console.error("Unknown game state:", state.gameState);
                 this.startGame(); // Default to starting the game
         }
     }
     
     destroy() {
+        // Unsubscribe from events
+        if (this.unsubscribe) {
+            this.unsubscribe();
+        }
+        
         // Remove UI elements
         if (this.menuOverlay && document.body.contains(this.menuOverlay)) {
             document.body.removeChild(this.menuOverlay);

@@ -26,20 +26,50 @@ export class Asteroid {
         this.hitSphereVisible = GameConfig.asteroid?.debug?.showHitSpheres || false; // Show hit spheres in debug mode
         this.isDestroyed = false; // Flag to track if asteroid is destroyed
         
-        // Add default values in case GameConfig.asteroid is undefined
+        // Create an empty container for the model first
+        this.container = new THREE.Object3D();
+        
+        // Initialize position property as a Vector3
+        this.position = new THREE.Vector3();
+        
+        // Add container to scene
+        scene.add(this.container);
+        
+        // Initialize with default position or reset with provided position
+        this.reset(position);
+        
+        // Create the hit sphere for collision detection
+        this.createHitSphere();
+        
+        // Initialize with empty model - will be loaded in loadModel
+        this.loadModel();
+    }
+    
+    /**
+     * Reset this asteroid for reuse from object pool
+     * @param {THREE.Vector3} position - Optional position to reset to, or null for random position
+     */
+    reset(position = null) {
+        // Reset properties
         const asteroidConfig = GameConfig.asteroid || {};
         const playerConfig = GameConfig.player || {};
+        
+        this.isDestroyed = false;
+        
+        // Reset size and health
         this.size = random(
             asteroidConfig.minSize || 50, 
             asteroidConfig.maxSize || 150
         );
-        // set health based on size 
         this.health = this.size * 2;
+        
+        // Reset speed
         this.speed = random(
             asteroidConfig.minSpeed || 100, 
             asteroidConfig.maxSpeed || 200
         );
         
+        // Reset rotation speed
         const minRotSpeed = asteroidConfig.minRotationSpeed || 0.01;
         const maxRotSpeed = asteroidConfig.maxRotationSpeed || 0.05;
         this.rotationSpeed = {
@@ -47,37 +77,65 @@ export class Asteroid {
             y: random(minRotSpeed, maxRotSpeed),
             z: random(minRotSpeed, maxRotSpeed)
         };
-
-        // Create an empty container for the model first
-        this.container = new THREE.Object3D();
         
         // Set position
         if (position) {
             this.container.position.copy(position);
+            // Make sure to update our position property
+            this.position.copy(position);
         } else {
-            // Get window width for spawn position
-            const windowWidth = window.innerWidth;
-            const spawnX = windowWidth + 100; // Spawn just off-screen to the right
+            // Get window width for spawn position or use GameConfig if available
+            const spawnX = GameConfig.asteroid?.spawnX || (window.innerWidth + 100); // Spawn just off-screen to the right
             
-            // Set position with Z fixed at 0 for 2D gameplay
-            this.container.position.set(
+            // Set position with Z random but within GameConfig range if available
+            const minZ = GameConfig.asteroid?.minSpawnZ || 0;
+            const maxZ = GameConfig.asteroid?.maxSpawnZ || 0;
+            
+            const newPosition = new THREE.Vector3(
                 spawnX,
                 random(playerConfig.minSpawnY || -70, playerConfig.maxSpawnY || 70),
-                0 // Fixed at 0 to create a 2D gameplay plane
+                random(minZ, maxZ)
             );
             
-            console.log('Asteroid spawned at:', this.container.position);
+            this.container.position.copy(newPosition);
+            // Make sure to update our position property
+            this.position.copy(newPosition);
         }
-
-        // Initialize movement pattern variables after container is created
+        
+        // Reset visibility if the container was hidden
+        this.container.visible = true;
+        
+        // Reset model scale if model exists
+        if (this.model) {
+            const scale = (this.size * 5) / 10;
+            this.model.scale.set(scale, scale, scale);
+        }
+        
+        // Initialize movement pattern variables 
         this.movementPattern = this.selectRandomPattern();
         this.patternParams = this.initializePatternParams();
         
-        // Create the hit sphere for collision detection
-        this.createHitSphere();
-
-        scene.add(this.container);
-        this.loadModel();
+        // Check if we need to recreate or resize the hit sphere based on new size
+        if (this.hitSphere) {
+            // If the size changed significantly, recreate the hit sphere
+            if (Math.abs(this.hitSphereRadius - this.size/2) > 5) {
+                // Remove old hit sphere
+                this.container.remove(this.hitSphere);
+                if (this.hitSphere.geometry) this.hitSphere.geometry.dispose();
+                if (this.hitSphere.material) this.hitSphere.material.dispose();
+                
+                // Create new hit sphere
+                this.createHitSphere();
+            } else {
+                // Just make sure it's visible if container is visible
+                this.hitSphere.visible = this.container.visible && this.hitSphereVisible;
+            }
+        } else {
+            // Create hit sphere if it doesn't exist
+            this.createHitSphere();
+        }
+        
+        return this;
     }
 
     selectRandomPattern() {
@@ -287,10 +345,11 @@ export class Asteroid {
     }
     
     update(deltaTime) {
-        const position = this.getPosition();
+        // Skip update if destroyed
+        if (this.isDestroyed) return true;
         
         // Base movement from right to left
-        position.x -= this.speed * deltaTime;
+        this.container.position.x -= this.speed * deltaTime;
 
         // Update pattern time trackers
         if (this.patternParams.time !== undefined) {
@@ -301,111 +360,106 @@ export class Asteroid {
         switch (this.movementPattern) {
             case MOVEMENT_PATTERNS.SINE_WAVE:
                 this.patternParams.time += deltaTime;
-                position.y = this.patternParams.initialY + 
-                    Math.sin(position.x * this.patternParams.frequency) * 
+                this.container.position.y = this.patternParams.initialY + 
+                    Math.sin(this.patternParams.time * this.patternParams.frequency) * 
                     this.patternParams.amplitude;
                 break;
-
+                
             case MOVEMENT_PATTERNS.SMOOTH_WAVE:
-                // Use smoothOscillate for more natural wave motion
-                position.y = this.patternParams.initialY + 
-                    smoothOscillate(this.patternParams.time, this.patternParams.period) * 
+                this.patternParams.time += deltaTime;
+                this.container.position.y = this.patternParams.initialY + 
+                    smoothOscillate(this.patternParams.time, this.patternParams.frequency) * 
                     this.patternParams.amplitude;
                 break;
-
+                
             case MOVEMENT_PATTERNS.ZIGZAG:
-                this.patternParams.timeSinceSwitch += deltaTime;
+                // Update zigzag timer
+                this.patternParams.currentTime += deltaTime;
                 
-                // Set new target when direction changes
-                if (this.patternParams.timeSinceSwitch >= this.patternParams.switchInterval) {
-                    this.patternParams.direction *= -1;
-                    this.patternParams.timeSinceSwitch = 0;
-                    this.patternParams.transitionProgress = 0;
-                    
-                    // Set new target Y position
-                    const targetOffset = this.patternParams.amplitude * this.patternParams.direction;
-                    this.patternParams.targetY = this.patternParams.initialY + targetOffset;
+                // Check if it's time to change direction
+                if (this.patternParams.currentTime >= this.patternParams.directionChangeInterval) {
+                    this.patternParams.currentTime = 0;
+                    this.patternParams.direction *= -1; // Reverse direction
                 }
                 
-                // Smooth transition between directions using easing
-                this.patternParams.transitionProgress += deltaTime / this.patternParams.switchInterval;
-                const easeFactor = easeInOut(this.patternParams.transitionProgress);
+                // Move in current direction
+                this.container.position.y += this.patternParams.speed * this.patternParams.direction * deltaTime;
                 
-                // Interpolate toward target position
-                position.y = lerp(position.y, this.patternParams.targetY, easeFactor * deltaTime * 2);
+                // Constrain to bounds
+                const maxY = this.patternParams.initialY + this.patternParams.amplitude;
+                const minY = this.patternParams.initialY - this.patternParams.amplitude;
+                
+                if (this.container.position.y > maxY) {
+                    this.container.position.y = maxY;
+                    this.patternParams.direction = -1;
+                } else if (this.container.position.y < minY) {
+                    this.container.position.y = minY;
+                    this.patternParams.direction = 1;
+                }
                 break;
-
+                
             case MOVEMENT_PATTERNS.SPIRAL:
-                // Create a spiraling motion with smooth transitions
-                this.patternParams.angle += deltaTime * this.patternParams.speed;
+                this.patternParams.angle += deltaTime * this.patternParams.rotationSpeed;
                 
-                // Use smoother sine and cosine for spiral movement but only in the y-axis
-                // Keep z fixed at 0 for 2D gameplay
-                position.y = this.patternParams.initialY + 
-                    Math.sin(this.patternParams.angle) * this.patternParams.radius;
-                // Remove z modification to maintain 2D plane
-                position.z = 0;
-                break;
-
-            case MOVEMENT_PATTERNS.BOUNCE:
-                // Apply current velocity
-                position.y += this.patternParams.currentVelocity * deltaTime;
+                // Calculate spiral position
+                const radius = this.patternParams.initialRadius - (this.patternParams.initialRadius * this.patternParams.contractionRate * this.patternParams.time);
+                const spiralX = this.patternParams.initialX - this.speed * deltaTime * 0.5; // Continue moving left, but slower
+                const spiralY = this.patternParams.initialY + Math.sin(this.patternParams.angle) * radius;
+                const spiralZ = this.patternParams.initialZ + Math.cos(this.patternParams.angle) * radius;
                 
-                // Check boundaries with smooth bounce transitions
-                if (position.y > this.patternParams.maxY) {
-                    position.y = this.patternParams.maxY;
-                    // Gradually reverse direction with easing
-                    this.patternParams.currentVelocity = 
-                        -Math.abs(this.patternParams.currentVelocity) * 
-                        (1 - this.patternParams.bounceEasing);
-                } else if (position.y < this.patternParams.minY) {
-                    position.y = this.patternParams.minY;
-                    // Gradually reverse direction with easing
-                    this.patternParams.currentVelocity = 
-                        Math.abs(this.patternParams.currentVelocity) * 
-                        (1 - this.patternParams.bounceEasing);
-                }
+                this.container.position.set(spiralX, spiralY, spiralZ);
                 break;
                 
             case MOVEMENT_PATTERNS.ORBIT:
-                // Orbital movement around a center point
-                this.patternParams.angle += deltaTime * this.patternParams.speed;
+                this.patternParams.time += deltaTime;
                 
-                // Elliptical orbit with constantly updating center
-                this.patternParams.centerX -= this.speed * deltaTime; // Center moves with asteroid
+                // Calculate orbit position
+                const orbitRadius = this.patternParams.radius;
+                const orbitSpeed = this.patternParams.orbitSpeed;
+                const orbitCenterX = this.patternParams.centerX - this.speed * deltaTime; // Center moves left
                 
-                position.x = this.patternParams.centerX + 
-                    Math.cos(this.patternParams.angle) * this.patternParams.radiusX;
-                position.y = this.patternParams.centerY + 
-                    Math.sin(this.patternParams.angle) * this.patternParams.radiusY;
+                this.container.position.x = orbitCenterX + Math.cos(this.patternParams.time * orbitSpeed) * orbitRadius * 0.3;
+                this.container.position.y = this.patternParams.centerY + Math.sin(this.patternParams.time * orbitSpeed) * orbitRadius;
                 break;
-
-            default: // STRAIGHT with slight variation
-                // Add subtle y-axis variation for more natural movement
-                position.y = this.patternParams.initialY + 
-                    Math.sin(this.patternParams.time * 0.5) * this.patternParams.yVariation;
-                position.z = 0; // Always keep z=0 for 2D gameplay
+                
+            case MOVEMENT_PATTERNS.BOUNCE:
+                // Update vertical position
+                this.container.position.y += this.patternParams.verticalSpeed * deltaTime;
+                
+                // Check if we need to bounce
+                if (this.container.position.y > this.patternParams.upperBound) {
+                    this.container.position.y = this.patternParams.upperBound;
+                    this.patternParams.verticalSpeed *= -1; // Reverse direction
+                } else if (this.container.position.y < this.patternParams.lowerBound) {
+                    this.container.position.y = this.patternParams.lowerBound;
+                    this.patternParams.verticalSpeed *= -1; // Reverse direction
+                }
                 break;
+                
+            // Default straight movement is already handled with the base movement
         }
-
-        // Force z=0 as a safety measure to ensure 2D gameplay regardless of movement pattern
-        position.z = 0;
-
-        // Update the container position which will move the model with it
-        this.container.position.set(position.x, position.y, position.z);
         
-        // Rotate asteroid model with smooth rotation speeds
+        // Rotate the asteroid
         if (this.model) {
             this.model.rotation.x += this.rotationSpeed.x * deltaTime;
             this.model.rotation.y += this.rotationSpeed.y * deltaTime;
             this.model.rotation.z += this.rotationSpeed.z * deltaTime;
         }
         
-        // Check if asteroid has moved out of view
-        const despawnDistance = GameConfig.asteroid && GameConfig.asteroid.despawnDistance ? 
-            GameConfig.asteroid.despawnDistance : -1400;
+        // Update hit sphere position to match container
+        if (this.hitSphere) {
+            this.hitSphere.position.copy(this.container.position);
             
-        return position.x < despawnDistance;
+            // Scale hit sphere based on asteroid size
+            const scale = this.size / 100; // Normalize size to a reasonable scale
+            this.hitSphere.scale.set(scale, scale, scale);
+        }
+        
+        // Sync our position property with the container position
+        this.position.copy(this.container.position);
+        
+        // Return true if the asteroid has moved off-screen and should be removed
+        return this.container.position.x < -1000;
     }
     
     // This method is called by external entities to request damage to be applied
@@ -481,48 +535,43 @@ export class Asteroid {
     }
     
     destroy() {
-        // Skip if already destroyed
-        if (!this.container || this.isDestroyed) return;
+        if (this.isDestroyed) return; // Already destroyed
         
+        // If destroy is called directly (not via object pooling),
+        // mark as destroyed and completely remove from scene
         this.isDestroyed = true;
         
-        // Remove from scene
-        if (this.scene) {
+        if (this.container) {
             this.scene.remove(this.container);
-        }
-        
-        // Clean up resources
-        if (this.model) {
-            this.model.traverse((child) => {
-                if (child.isMesh) {
-                    if (child.geometry) {
-                        child.geometry.dispose();
+            
+            // Dispose of all geometries and materials
+            if (this.model) {
+                this.model.traverse((child) => {
+                    if (child.isMesh) {
+                        if (child.geometry) {
+                            child.geometry.dispose();
+                        }
+                        if (Array.isArray(child.material)) {
+                            child.material.forEach(material => {
+                                if (material) material.dispose();
+                            });
+                        } else if (child.material) {
+                            child.material.dispose();
+                        }
                     }
-                    if (Array.isArray(child.material)) {
-                        child.material.forEach(material => {
-                            if (material) material.dispose();
-                        });
-                    } else if (child.material) {
-                        child.material.dispose();
-                    }
-                }
-            });
-        }
-        
-        // Clean up hit sphere
-        if (this.hitSphere) {
-            if (this.hitSphere.geometry) {
-                this.hitSphere.geometry.dispose();
+                });
+                this.model = null;
             }
-            if (this.hitSphere.material) {
-                this.hitSphere.material.dispose();
+            
+            // Dispose hit sphere if it exists
+            if (this.hitSphere) {
+                if (this.hitSphere.geometry) this.hitSphere.geometry.dispose();
+                if (this.hitSphere.material) this.hitSphere.material.dispose();
+                this.hitSphere = null;
             }
-            this.hitSphere = null;
+            
+            this.container = null;
         }
-        
-        // Clear references
-        this.model = null;
-        this.container = null;
     }
 
     // Create a sphere for collision detection
@@ -609,5 +658,52 @@ export class Asteroid {
         }
         
         return isColliding;
+    }
+
+    /**
+     * Check if hit sphere is visible
+     * @returns {boolean} True if hit sphere is visible
+     */
+    isHitSphereVisible() {
+        return this.hitSphereVisible;
+    }
+
+    /**
+     * Set hit sphere visibility
+     * @param {boolean} isVisible - Whether the hit sphere should be visible
+     */
+    setHitSphereVisible(isVisible) {
+        this.hitSphereVisible = isVisible;
+        
+        if (this.hitSphere && this.hitSphere.material) {
+            this.hitSphere.material.opacity = isVisible ? 0.3 : 0;
+            this.hitSphere.material.wireframe = isVisible;
+            // Only show the hit sphere if both hitSphereVisible is true AND the container is visible
+            this.hitSphere.visible = isVisible && this.container.visible;
+        }
+        
+        return this;
+    }
+
+    /**
+     * Prepare the asteroid for returning to the object pool
+     * Keep meshes/geometries in memory but remove from scene/parent
+     */
+    prepareForPooling() {
+        // Mark as destroyed but don't destroy geometry
+        this.isDestroyed = true;
+        
+        // Hide the container instead of removing it from scene
+        if (this.container) {
+            this.container.visible = false;
+            
+            // Also hide the hit sphere explicitly
+            if (this.hitSphere) {
+                this.hitSphere.visible = false;
+            }
+            
+            // Move far off-screen as an extra precaution
+            this.container.position.set(-10000, -10000, -10000);
+        }
     }
 } 

@@ -21,21 +21,26 @@ export function randomInt(min, max) {
  * @returns {boolean} - Whether the objects are colliding
  * 
  * The function supports different object types:
- * 1. Objects with getHitSpherePosition/getHitSphereWorldPosition and hitSphereRadius properties
+ * 1. Objects with getHitSpherePosition/getHitSphereWorldPosition and getHitSphereRadius methods
  * 2. Objects with position and radius properties
  * 3. Three.js objects with position and geometry.boundingSphere
  */
 export function checkCollision(obj1, obj2) {
+    // Check if either object is null or undefined
+    if (!obj1 || !obj2) {
+        return false;
+    }
+    
     // Get position and radius for first object
     let pos1, radius1;
     
     // Case 1: Object has getHitSpherePosition or getHitSphereWorldPosition method
     if (typeof obj1.getHitSpherePosition === 'function') {
         pos1 = obj1.getHitSpherePosition();
-        radius1 = obj1.hitSphereRadius;
+        radius1 = typeof obj1.getHitSphereRadius === 'function' ? obj1.getHitSphereRadius() : obj1._hitSphereRadius;
     } else if (typeof obj1.getHitSphereWorldPosition === 'function') {
         pos1 = obj1.getHitSphereWorldPosition();
-        radius1 = obj1.hitSphereRadius;
+        radius1 = typeof obj1.getHitSphereRadius === 'function' ? obj1.getHitSphereRadius() : obj1._hitSphereRadius;
     }
     // Case 2: Object has position and radius directly
     else if (obj1.position && obj1.radius !== undefined) {
@@ -49,7 +54,8 @@ export function checkCollision(obj1, obj2) {
     }
     // Invalid object
     else {
-        throw new Error('Invalid object passed to checkCollision: missing position or radius information');
+        console.warn('Invalid object passed to checkCollision, unable to determine collision properties', obj1);
+        return false;
     }
     
     // Get position and radius for second object
@@ -58,10 +64,10 @@ export function checkCollision(obj1, obj2) {
     // Case 1: Object has getHitSpherePosition or getHitSphereWorldPosition method
     if (typeof obj2.getHitSpherePosition === 'function') {
         pos2 = obj2.getHitSpherePosition();
-        radius2 = obj2.hitSphereRadius;
+        radius2 = typeof obj2.getHitSphereRadius === 'function' ? obj2.getHitSphereRadius() : obj2._hitSphereRadius;
     } else if (typeof obj2.getHitSphereWorldPosition === 'function') {
         pos2 = obj2.getHitSphereWorldPosition();
-        radius2 = obj2.hitSphereRadius;
+        radius2 = typeof obj2.getHitSphereRadius === 'function' ? obj2.getHitSphereRadius() : obj2._hitSphereRadius;
     }
     // Case 2: Object has position and radius directly
     else if (obj2.position && obj2.radius !== undefined) {
@@ -75,18 +81,14 @@ export function checkCollision(obj1, obj2) {
     }
     // Invalid object
     else {
-        throw new Error('Invalid object passed to checkCollision: missing position or radius information');
+        console.warn('Invalid object passed to checkCollision, unable to determine collision properties', obj2);
+        return false;
     }
     
-    // Ensure we have valid positions and radii
-    if (!pos1 || !pos2 || radius1 === undefined || radius2 === undefined) {
-        throw new Error('Failed to extract position or radius from objects');
-    }
-    
-    // Calculate distance between centers
+    // Calculate distance between objects
     const distance = pos1.distanceTo(pos2);
     
-    // Check if the distance is less than the sum of radii
+    // Check if objects are colliding
     return distance < (radius1 + radius2);
 }
 

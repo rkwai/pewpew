@@ -9,14 +9,13 @@ import { Explosion } from './Explosion.js';
 export class Bullet {
     constructor(scene, position) {
         this.scene = scene;
-        this.speed = GameConfig.bullet.speed;
-        this.lifeTime = GameConfig.bullet.lifespan;
-        this.initialPosition = position.clone();
         this.isDestroyed = false; // Track if bullet is destroyed
         
         // Create a bullet container
         this.mesh = new THREE.Object3D();
-        this.mesh.position.copy(position);
+        
+        // Initialize with invisible mesh
+        this.mesh.visible = false;
         
         // Add to scene
         this.scene.add(this.mesh);
@@ -25,10 +24,74 @@ export class Bullet {
         this.hitSphereVisible = GameConfig.bullet?.debug?.showHitSphere || false;
         this.createHitSphere();
         
-        // Trail is removed as requested
+        // Set initial speed and lifetime properties
+        this.speed = GameConfig.bullet.speed;
+        this.lifeTime = GameConfig.bullet.lifespan;
+        
+        // Initialize with the position - if provided
+        if (position) {
+            this.initialPosition = position.clone();
+            this.mesh.position.copy(position);
+        } else {
+            // Default position far off-screen if none provided
+            this.initialPosition = new THREE.Vector3(-10000, -10000, -10000);
+            this.mesh.position.copy(this.initialPosition);
+        }
         
         // Load missile model
         this.loadModel();
+    }
+    
+    /**
+     * Reset bullet for reuse from object pool
+     * @param {THREE.Vector3} position - The position to place the bullet
+     * @returns {Bullet} This bullet instance for chaining
+     */
+    reset(position) {
+        this.speed = GameConfig.bullet.speed;
+        this.lifeTime = GameConfig.bullet.lifespan;
+        this.isDestroyed = false;
+        
+        // Check if we have a valid position
+        const validPosition = position && 
+            typeof position.x === 'number' && 
+            typeof position.y === 'number' && 
+            typeof position.z === 'number';
+        
+        // Safely clone the position or create a default far off-screen
+        if (validPosition) {
+            this.initialPosition = position.clone();
+        } else {
+            // If invalid position, put it far off-screen and keep it invisible
+            this.initialPosition = new THREE.Vector3(-10000, -10000, -10000);
+            console.warn('Invalid position provided to bullet.reset(), moving off-screen', position);
+        }
+        
+        // Safely update position if mesh exists
+        if (this.mesh) {
+            this.mesh.position.copy(this.initialPosition);
+            
+            // Only make the bullet visible if it has a valid position
+            this.mesh.visible = validPosition;
+        } else {
+            // If mesh doesn't exist (destroyed fully), recreate it
+            this.mesh = new THREE.Object3D();
+            this.mesh.position.copy(this.initialPosition);
+            this.mesh.visible = validPosition;
+            this.scene.add(this.mesh);
+            
+            // Recreate hit sphere
+            if (!this.hitSphere) {
+                this.createHitSphere();
+            }
+            
+            // Queue model loading if needed
+            if (!this.model) {
+                this.loadModel();
+            }
+        }
+        
+        return this;
     }
     
     loadModel() {
@@ -81,7 +144,7 @@ export class Bullet {
             (error) => {
                 console.error('An error occurred while loading the missile model:', error);
                 // Create a simple placeholder if loading fails and bullet still exists
-                if (this.mesh && !this.isDestroyed) {
+                if (this.mesh && !this.isDestroyed && GameConfig.bullet?.debug?.showPlaceholder) {
                     this.createPlaceholderModel();
                 }
             }
@@ -132,6 +195,25 @@ export class Bullet {
         return this.lifeTime <= 0;
     }
     
+    /**
+     * Prepare the bullet for returning to the object pool
+     * Keep meshes/geometries in memory but hide it
+     */
+    prepareForPooling() {
+        // Mark as destroyed but don't destroy geometry
+        this.isDestroyed = true;
+        
+        // Hide instead of removing from scene
+        if (this.mesh) {
+            this.mesh.visible = false;
+        }
+        
+        // Turn off hit sphere visibility
+        if (this.hitSphere) {
+            this.hitSphere.visible = false;
+        }
+    }
+    
     destroy() {
         if (!this.mesh || this.isDestroyed) return; // Already destroyed
         
@@ -146,6 +228,14 @@ export class Bullet {
             if (this.trail.geometry) this.trail.geometry.dispose();
             if (this.trail.material) this.trail.material.dispose();
             this.trail = null;
+        }
+        
+        // Clean up hit sphere
+        if (this.hitSphere) {
+            this.mesh.remove(this.hitSphere);
+            if (this.hitSphere.geometry) this.hitSphere.geometry.dispose();
+            if (this.hitSphere.material) this.hitSphere.material.dispose();
+            this.hitSphere = null;
         }
         
         // Clean up model resources
@@ -164,6 +254,7 @@ export class Bullet {
                     }
                 }
             });
+            this.mesh.remove(this.model);
             this.model = null;
         }
         

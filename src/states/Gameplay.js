@@ -6,6 +6,8 @@ import { InputHandler } from '../utilities/InputHandler.js';
 import { Explosion } from '../entities/Explosion.js';
 import { GLTFLoader } from '../utilities/ThreeImports.js';
 import { GameStateManager, GameState } from './GameStateManager.js';
+import { UIManager } from './UIManager.js';
+import { Events } from '../utilities/EventSystem.js';
 
 // Debug mode flag - set to false to disable debug features
 const DEBUG_MODE = false;
@@ -22,6 +24,9 @@ export class Gameplay {
         this.isGameOver = false;
         this.isPaused = false;
         this.explosions = []; // Array to track active explosions
+        this.uiManager = new UIManager(); // Create UIManager
+        this.lastTime = 0; // Initialize lastTime for animation
+        this.isDestroyed = false; // Flag to track if gameplay is destroyed
         
         this.init();
     }
@@ -171,8 +176,9 @@ export class Gameplay {
         // Handle window resize
         window.addEventListener('resize', this.onWindowResize.bind(this));
         
-        // Start game loop
-        this.animate();
+        // Start game loop with explicit timestamp of 0 for first frame
+        this.lastTime = performance.now();
+        this.animate(this.lastTime);
     }
     
     addLights() {
@@ -249,52 +255,88 @@ export class Gameplay {
         this.scene.add(this.starfield);
     }
     
-    animate() {
-        // Continue animation loop
-        requestAnimationFrame(this.animate.bind(this));
+    /**
+     * Animation loop for gameplay
+     * @param {number} timestamp - The current timestamp from requestAnimationFrame
+     */
+    animate(timestamp) {
+        // Ensure we have a valid timestamp
+        const currentTime = timestamp || performance.now();
         
-        // Always render the scene to keep visuals on screen
+        // Calculate elapsed time since last frame and convert to seconds
+        const deltaTime = (currentTime - this.lastTime) / 1000;
+        this.lastTime = currentTime;
+        
+        // Limit delta time to prevent "time jumps" during lag or tab switches
+        const cappedDelta = Math.min(deltaTime, 0.1);
+        
+        // Update the game state
+        if (!this.isPaused && !this.isGameOver) {
+            // Update player
+            this.player.update(cappedDelta, this.inputHandler);
+            
+            // Update asteroids and check for collisions
+            this.asteroidManager.update(cappedDelta, this.player);
+            
+            // Update explosions
+            this.updateExplosions(cappedDelta);
+            
+            // Update starfield (scrolling effect)
+            this.updateStarfield(cappedDelta);
+            
+            // Check if player is still alive
+            if (this.player.getHealth() <= 0) {
+                this.gameOver();
+            }
+            
+            // Perform resource cleanup every frame to prevent memory leaks
+            this.player.cleanupResources();
+            this.asteroidManager.cleanupResources();
+        }
+        
+        // Render the scene
         this.renderer.render(this.scene, this.camera);
         
-        // Skip all other updates if paused or game over
-        if (this.isPaused || this.isGameOver) {
-            return;
+        // Request the next animation frame if not destroyed
+        if (!this.isDestroyed) {
+            this.animationFrameId = requestAnimationFrame(this.animate.bind(this));
         }
-        
-        const deltaTime = this.clock.getDelta();
-        
-        // Update player
-        if (this.player) {
-            this.player.update(deltaTime, this.inputHandler);
-            
-            // Check if player is dead
-            if (this.player.health <= 0) {
-                console.log("Player health is zero - game over triggered");
-                this.gameOver();
-                return; // Stop further updates
-            }
-        }
-        
-        // Update asteroids
-        if (this.asteroidManager) {
-            this.asteroidManager.update(deltaTime, this.player);
-        }
-        
-        // Update explosions
+    }
+    
+    /**
+     * Update all active explosions
+     * @param {number} deltaTime - Time delta in seconds
+     */
+    updateExplosions(deltaTime) {
         for (let i = this.explosions.length - 1; i >= 0; i--) {
             const isActive = this.explosions[i].update(deltaTime);
             if (!isActive) {
                 this.explosions.splice(i, 1);
             }
         }
-        
-        // Update starfield (scrolling effect)
+    }
+    
+    /**
+     * Update starfield position for scrolling effect
+     * @param {number} deltaTime - Time delta in seconds
+     */
+    updateStarfield(deltaTime) {
         if (this.starfield) {
-            this.starfield.position.x -= 30 * deltaTime; // Move stars left
+            // Move stars from right to left (negative X direction)
+            const starSpeed = GameConfig.starfield?.speed || 50; // Default speed: 50 units per second
+            this.starfield.position.x -= starSpeed * deltaTime;
             
-            // Reset stars that go past the left edge
-            if (this.starfield.position.x < -2000) {
+            // Log starfield position occasionally for debugging
+            if (Math.random() < 0.01) {
+                console.log(`Starfield at x: ${this.starfield.position.x.toFixed(2)}`);
+            }
+            
+            // Reset stars position when they've scrolled far enough
+            // This creates an "infinite" scrolling effect
+            const resetDistance = GameConfig.starfield?.resetDistance || -1000;
+            if (this.starfield.position.x < resetDistance) {
                 this.starfield.position.x = 0;
+                console.log('Starfield position reset to 0');
             }
         }
     }
@@ -332,7 +374,7 @@ export class Gameplay {
         try {
             const playerPosition = this.player.getPosition();
             // Create a large explosion at the player's position
-            const explosionSize = this.player.hitSphereRadius * 2;
+            const explosionSize = this.player.getHitSphereRadius() * 2;
             new Explosion(this.scene, playerPosition, explosionSize);
             
             // Hide the player model
@@ -349,12 +391,17 @@ export class Gameplay {
             console.error("Error creating final player explosion:", error);
         }
         
-        // Stop all asteroids from moving (we won't update them anymore due to isGameOver)
-        
         // Use state manager to show game over screen
         if (this.stateManager) {
             const score = this.asteroidManager.getScore();
             console.log(`Game over with score: ${score}`);
+            
+            // Show game over message using UIManager
+            this.uiManager.showGameOverMessage(score);
+            
+            // Emit game over event
+            Events.emit('gameOver', { score });
+            
             this.stateManager.gameOver(score);
         } else {
             console.error("Missing stateManager in gameOver()");
@@ -387,44 +434,76 @@ export class Gameplay {
         }
         this.explosions = [];
         
-        // Reset HUD - let the player handle its own health display
-        document.getElementById('score').innerText = 'Score: 0';
-        document.getElementById('hud').style.display = 'block';
+        // Reset UI using UIManager instead of direct DOM manipulation
+        this.uiManager.resetUI();
         
         // Reset and start the clock
         this.clock = new THREE.Clock(); // Create a fresh clock
         this.clock.start();
         
+        // Emit restart event
+        Events.emit('gameRestart', {});
+        
         console.log("Game restart completed - new game started, current state - isGameOver:", this.isGameOver);
     }
     
     destroy() {
-        // Clean up resources
-        if (this.player) {
-            this.player.destroy();
-        }
+        this.isDestroyed = true;
         
-        if (this.asteroidManager) {
-            this.asteroidManager.reset();
-        }
-        
-        if (this.stateManager) {
-            this.stateManager.destroy();
-        }
-        
-        if (this.inputHandler) {
-            this.inputHandler.destroy();
+        // Cancel any pending animation frames
+        if (this.animationFrameId) {
+            cancelAnimationFrame(this.animationFrameId);
         }
         
         // Remove event listeners
         window.removeEventListener('resize', this.onWindowResize);
         
-        // Remove renderer from DOM
-        if (this.renderer && this.renderer.domElement) {
-            if (document.body.contains(this.renderer.domElement)) {
-                document.body.removeChild(this.renderer.domElement);
-            }
+        // Dispose of all explosions
+        if (this.explosions) {
+            this.explosions.forEach(explosion => {
+                explosion.dispose();
+            });
+            this.explosions = [];
         }
+        
+        // Call dispose on managers to properly clean up resources
+        if (this.asteroidManager) {
+            this.asteroidManager.dispose();
+            this.asteroidManager = null;
+        }
+        
+        if (this.player) {
+            this.player.dispose();
+            this.player = null;
+        }
+        
+        // Clean up input handler
+        if (this.inputHandler) {
+            this.inputHandler.dispose();
+            this.inputHandler = null;
+        }
+        
+        // Clean up scene
+        if (this.scene) {
+            this.clearScene(this.scene);
+            this.scene = null;
+        }
+        
+        // Clean up renderer
+        if (this.renderer) {
+            this.renderer.dispose();
+            this.renderer.forceContextLoss();
+            this.renderer.domElement = null;
+            this.renderer = null;
+        }
+        
+        // Clean up camera
+        this.camera = null;
+        
+        console.log("Gameplay state destroyed, all resources cleaned up");
+        
+        // Emit destroy event
+        Events.emit('gameplayDestroyed', {});
         
         // Clear game state reference
         window.gameState = null;
@@ -497,7 +576,7 @@ export class Gameplay {
             { width: window.innerWidth, height: window.innerHeight });
     }
     
-    // Set up debug features and keyboard shortcuts
+    // Show debug features and keyboard shortcuts
     setupDebugHandlers() {
         // Toggle hit spheres when 'H' key is pressed
         this.inputHandler.onToggleHitSpheres = () => {
@@ -514,11 +593,12 @@ export class Gameplay {
                         GameConfig.player.debug.showHitSphere = true;
                     }
                     
-                    this.showDebugMessage("Hit spheres visible");
+                    // Use UIManager for debug messages
+                    this.uiManager.showDebugMessage("Hit spheres visible");
                 } else if (!GameConfig.asteroid.debug.logCollisions) {
                     // State 2: Show hit spheres and log collisions
                     GameConfig.asteroid.debug.logCollisions = true;
-                    this.showDebugMessage("Hit spheres visible + collision logging");
+                    this.uiManager.showDebugMessage("Hit spheres visible + collision logging");
                 } else {
                     // State 3: Turn everything off
                     GameConfig.asteroid.debug.showHitSpheres = false;
@@ -529,19 +609,26 @@ export class Gameplay {
                         GameConfig.player.debug.showHitSphere = false;
                     }
                     
-                    this.showDebugMessage("Debug features disabled");
+                    this.uiManager.showDebugMessage("Debug features disabled");
                 }
                 
                 // Update existing asteroids
-                if (this.asteroidManager && this.asteroidManager.asteroids) {
-                    this.asteroidManager.asteroids.forEach(asteroid => {
+                if (this.asteroidManager) {
+                    // Use getAsteroids() method instead of directly accessing the asteroids property
+                    const asteroids = this.asteroidManager.getAsteroids();
+                    asteroids.forEach(asteroid => {
                         if (!asteroid.hitSphere) {
                             asteroid.createHitSphere();
                         }
-                        // Update hit sphere visibility
-                        asteroid.hitSphereVisible = GameConfig.asteroid.debug.showHitSpheres;
-                        asteroid.hitSphere.material.opacity = GameConfig.asteroid.debug.showHitSpheres ? 0.3 : 0;
-                        asteroid.hitSphere.material.wireframe = GameConfig.asteroid.debug.showHitSpheres;
+                        // Use asteroid setHitSphereVisible method instead of direct property access
+                        if (asteroid.setHitSphereVisible) {
+                            asteroid.setHitSphereVisible(GameConfig.asteroid.debug.showHitSpheres);
+                        } else {
+                            // Fallback for asteroids without the setter method
+                            asteroid.hitSphereVisible = GameConfig.asteroid.debug.showHitSpheres;
+                            asteroid.hitSphere.material.opacity = GameConfig.asteroid.debug.showHitSpheres ? 0.3 : 0;
+                            asteroid.hitSphere.material.wireframe = GameConfig.asteroid.debug.showHitSpheres;
+                        }
                         // Reset color
                         asteroid.hitSphere.material.color.set(0x00ff00);
                     });
@@ -549,7 +636,7 @@ export class Gameplay {
                 
                 // Update player hit sphere
                 if (this.player && this.player.hitSphere) {
-                    this.player.updateHitSphereVisibility(GameConfig.player.debug.showHitSphere);
+                    this.player.setHitSphereVisible(GameConfig.player.debug.showHitSphere);
                 }
                 
                 console.log(
@@ -560,36 +647,9 @@ export class Gameplay {
         };
     }
     
-    // Display a temporary debug message on screen
-    showDebugMessage(message, duration = 2000) {
-        // Create or update debug message element
-        let msgElement = document.getElementById('debug-message');
-        
-        if (!msgElement) {
-            msgElement = document.createElement('div');
-            msgElement.id = 'debug-message';
-            msgElement.style.position = 'absolute';
-            msgElement.style.top = '50px';
-            msgElement.style.left = '50%';
-            msgElement.style.transform = 'translateX(-50%)';
-            msgElement.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-            msgElement.style.color = 'white';
-            msgElement.style.padding = '10px 20px';
-            msgElement.style.borderRadius = '5px';
-            msgElement.style.fontFamily = 'Arial, sans-serif';
-            msgElement.style.fontSize = '16px';
-            msgElement.style.zIndex = '1000';
-            document.body.appendChild(msgElement);
-        }
-        
-        // Update message text
-        msgElement.textContent = message;
-        msgElement.style.display = 'block';
-        
-        // Hide after duration
-        setTimeout(() => {
-            msgElement.style.display = 'none';
-        }, duration);
+    // Utility method for showing debug messages (now using UIManager)
+    showDebugMessage(message) {
+        this.uiManager.showDebugMessage(message);
     }
     
     // Preload the explosion model for faster display

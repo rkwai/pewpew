@@ -182,20 +182,36 @@ export const GameConfig = {
         size: 5,    // Increased from 5 for better visibility
         color: 0x000000,
         brightness: 3 , // Controls emissive intensity
-        lifespan: 2 // seconds
+        lifespan: 2, // seconds
+        radius: 5,
+        damage: 50,
+        
+        // Pooling settings (duplicated from objectPool for convenience)
+        poolSize: 30,
+        
+        // Add debug settings for object pooling
+        debug: {
+            showHitSphere: false,
+            logCleanup: false,
+            logPoolStats: false,
+            logPositions: true, // Log bullet creation positions
+            showPlaceholder: true // Show placeholder if model fails to load
+        },
     },
     
     // Asteroid settings
     asteroid: {
         minSpeed: 75,
         maxSpeed: 150,
-        minSize: 30,
-        maxSize: 100,
+        minSize: 20,
+        maxSize: 70,
         minRotationSpeed: 0.1,
         maxRotationSpeed: 0.5,
         spawnRate: 2, // per second
         spawnDistance: 50,
         despawnDistance: -100,
+        yRange: 300,
+        damage: 20, // Damage caused to player
         // Asteroid aesthetics
         aesthetics: {
             // Material enhancement
@@ -220,10 +236,31 @@ export const GameConfig = {
                 shininess: 20    // Lower shininess for matte rock surfaces
             }
         },
-        // Debug settings
+        // Pooling settings (duplicated from objectPool for convenience)
+        poolSize: 20,
+        
+        // Add debug settings for object pooling
         debug: {
-            showHitSpheres: false, // Set to true to visualize collision spheres
-            logCollisions: false   // Set to true to log collision details to console
+            showHitSpheres: false,
+            logCollisions: false,
+            logCleanup: false,
+            logPoolStats: false
+        }
+    },
+    
+    // Object pooling settings
+    objectPool: {
+        enabled: true,
+        debug: {
+            logStats: false
+        },
+        asteroid: {
+            initialSize: 20,   // Initial pool size for asteroids
+            expandAmount: 10   // How many to add when pool is empty
+        },
+        bullet: {
+            initialSize: 30,   // Initial pool size for bullets
+            expandAmount: 15   // How many to add when pool is empty
         }
     }
 }; 
