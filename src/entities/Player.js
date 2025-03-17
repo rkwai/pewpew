@@ -1,32 +1,40 @@
-import { THREE, GLTFLoader } from '../utilities/ThreeImports.js';
+import { THREE } from '../utilities/ThreeImports.js';
 import { GameConfig } from '../config/game.config.js';
-import { Bullet } from './Bullet.js';
-import { clamp, enhanceMaterial } from '../utilities/Utils.js';
+import { enhanceMaterial } from '../utilities/Utils.js';
 import { Explosion } from './Explosion.js';
+import { ModelLoader } from '../utilities/ModelLoader.js';
+import { BulletManager } from './BulletManager.js';
+import { UIManager } from '../states/UIManager.js';
 
-// Remove direct import and use path string instead
-// import spaceshipModel from '../../../assets/models/spaceship.glb';
-
+/**
+ * Player class representing the user-controlled spaceship
+ */
 export class Player {
+    /**
+     * Create a new player
+     * @param {THREE.Scene} scene - The scene to add the player to
+     */
     constructor(scene) {
         this.scene = scene;
         this.model = null;
-        this.bullets = [];
         this.velocity = new THREE.Vector3(0, 0, 0);
         this.acceleration = new THREE.Vector3(0, 0, 0);
         this.maxSpeed = GameConfig.player.speed;
-        this.health = GameConfig.player.health;
+        this._health = GameConfig.player.health;
         this.shootCooldown = 0;
-        this.isInvulnerable = false;
-        this.invulnerabilityTimer = 0;
+        this._isInvulnerable = false;
+        this._invulnerabilityTimer = 0;
         this.modelLoaded = false;
-        this.engineTime = 0;
+        this._position = new THREE.Vector3(-200, 0, 0); // Unified position management
         this.hitSphere = null;
-        this.hitSphereRadius = GameConfig.player.hitSphereRadius || 15;
-        // Use debug setting if available, otherwise use the default visibility
-        this.hitSphereVisible = (GameConfig.player.debug && GameConfig.player.debug.showHitSphere) || 
-                               GameConfig.player.hitSphereVisible || 
-                               false;
+        this._hitSphereRadius = GameConfig.player.hitSphereRadius || 15;
+        this._hitSphereVisible = (GameConfig.player.debug && GameConfig.player.debug.showHitSphere) ||
+                                 GameConfig.player.hitSphereVisible ||
+                                 false;
+        
+        // Initialize managers
+        this.bulletManager = new BulletManager(scene);
+        this.uiManager = new UIManager();
         
         // Create a temporary mesh until the model loads
         this.createTempMesh();
@@ -36,202 +44,215 @@ export class Player {
         
         // Initialize health display
         this.updateHealthDisplay();
-        
-        // Engine effects removed
     }
     
-    // Create a temporary mesh until the model loads
+    /**
+     * Get the current health value
+     * @returns {number} Current health
+     */
+    getHealth() {
+        return this._health;
+    }
+
+    /**
+     * Set the health value with bounds checking
+     * @param {number} newHealth - New health value
+     */
+    setHealth(newHealth) {
+        this._health = Math.max(0, newHealth); // Ensure health doesn't go below 0
+        this.updateHealthDisplay();
+        if (this._health <= 0) {
+            console.log("Player health is zero - death condition triggered");
+        }
+    }
+
+    /**
+     * Check if player is currently invulnerable
+     * @returns {boolean} True if player is invulnerable
+     */
+    isInvulnerable() {
+        return this._isInvulnerable;
+    }
+
+    /**
+     * Set player invulnerability state
+     * @param {number} duration - Duration of invulnerability in seconds (0 to disable)
+     */
+    setInvulnerable(duration) {
+        if (duration > 0) {
+            this._isInvulnerable = true;
+            this._invulnerabilityTimer = duration;
+        } else {
+            this._isInvulnerable = false;
+            this._invulnerabilityTimer = 0;
+            if (this.model) {
+                this.model.visible = true; // Ensure model is visible when invulnerability ends
+            }
+        }
+    }
+
+    /**
+     * Get the hit sphere radius
+     * @returns {number} Hit sphere radius
+     */
+    getHitSphereRadius() {
+        return this._hitSphereRadius;
+    }
+
+    /**
+     * Set the hit sphere radius
+     * @param {number} radius - New hit sphere radius
+     */
+    setHitSphereRadius(radius) {
+        this._hitSphereRadius = radius;
+        if (this.hitSphere) {
+            this.hitSphere.geometry.dispose(); // Dispose old geometry
+            this.hitSphere.geometry = new THREE.SphereGeometry(this._hitSphereRadius, 16, 12); // Create new geometry
+        }
+    }
+
+    /**
+     * Check if hit sphere is visible
+     * @returns {boolean} True if hit sphere is visible
+     */
+    isHitSphereVisible() {
+        return this._hitSphereVisible;
+    }
+
+    /**
+     * Set hit sphere visibility
+     * @param {boolean} isVisible - Whether hit sphere should be visible
+     */
+    setHitSphereVisible(isVisible) {
+        this._hitSphereVisible = isVisible;
+        this.updateHitSphereVisibility(isVisible); // Use existing update method
+    }
+    
+    /**
+     * Create a temporary mesh until the model loads
+     */
     createTempMesh() {
-        // Create a temporary mesh while model loads
-        const geometry = new THREE.BoxGeometry(30, 10, 50);
-        const material = new THREE.MeshPhongMaterial({ 
+        // Create placeholder mesh using ModelLoader
+        this.tempMesh = ModelLoader.createPlaceholderMesh({
+            size: { x: 30, y: 10, z: 50 },
             color: 0x3333ff,
-            transparent: true,
+            position: this._position,
             opacity: 0.5
         });
         
-        this.tempMesh = new THREE.Mesh(geometry, material);
-        this.tempMesh.position.set(-200, 0, 0); // Start on left side
         this.scene.add(this.tempMesh);
         
         // Create hit sphere for collision detection
         this.createHitSphere();
     }
     
-    // Create hit sphere for player collision detection
+    /**
+     * Create a hit sphere for collision detection
+     */
     createHitSphere() {
         // Create geometry for the player's hit sphere
-        const hitSphereGeometry = new THREE.SphereGeometry(this.hitSphereRadius, 16, 12);
+        const hitSphereGeometry = new THREE.SphereGeometry(this._hitSphereRadius, 16, 12);
         
         // Create material - transparent if not in debug mode
         const hitSphereMaterial = new THREE.MeshBasicMaterial({
             color: 0x0000ff, // Blue color for player's hit sphere
             transparent: true,
-            opacity: this.hitSphereVisible ? 0.3 : 0,
-            wireframe: this.hitSphereVisible
+            opacity: this._hitSphereVisible ? 0.3 : 0,
+            wireframe: this._hitSphereVisible
         });
         
         // Create mesh
         this.hitSphere = new THREE.Mesh(hitSphereGeometry, hitSphereMaterial);
         
-        // Add to scene at player position
-        this.hitSphere.position.copy(this.tempMesh.position);
+        // Position at player position
+        this.hitSphere.position.copy(this._position);
         this.scene.add(this.hitSphere);
         
-        console.log(`Created player hit sphere with radius ${this.hitSphereRadius}`);
+        console.log(`Created player hit sphere with radius ${this._hitSphereRadius}`);
     }
     
-    // Get hit sphere position for collision detection
+    /**
+     * Get hit sphere position for collision detection
+     * @returns {THREE.Vector3} Hit sphere position
+     */
     getHitSpherePosition() {
-        if (!this.hitSphere) return this.getPosition();
-        return this.hitSphere.position.clone();
+        return this.hitSphere ? this.hitSphere.position.clone() : this._position.clone();
     }
     
-    // Update the hit sphere position to match the player
+    /**
+     * Update the hit sphere position to match the player
+     */
     updateHitSpherePosition() {
-        if (!this.hitSphere) return;
-        
-        const playerPos = this.getPosition();
-        this.hitSphere.position.copy(playerPos);
+        if (this.hitSphere) {
+            this.hitSphere.position.copy(this._position);
+        }
     }
     
+    /**
+     * Load the player model
+     */
     loadModel() {
-        const loader = new GLTFLoader();
-        console.log('Attempting to load spaceship model from: assets/models/spaceship.glb');
+        const modelPath = 'assets/models/spaceship.glb';
         
-        // Try to load the model, but continue with placeholder if missing
-        loader.load(
-            // Use path string instead of import
-            'assets/models/spaceship.glb',
-            (gltf) => {
+        // Configure model loading
+        const modelConfig = {
+            position: this._position.clone(),
+            scale: GameConfig.player.aesthetics.scale,
+            rotation: { y: GameConfig.player.aesthetics.rotation },
+            gameConfig: GameConfig,
+            aesthetics: GameConfig.player.aesthetics,
+            castShadow: true,
+            receiveShadow: true
+        };
+        
+        // Load the model with the ModelLoader
+        ModelLoader.loadModel(
+            modelPath,
+            modelConfig,
+            (model) => {
                 this.modelLoaded = true;
-                console.log('Spaceship model loaded successfully');
                 
-                // Remove temporary mesh
-                this.scene.remove(this.tempMesh);
+                // Remove temporary mesh and clean up
+                if (this.tempMesh) {
+                    this.scene.remove(this.tempMesh);
+                    this.tempMesh.geometry.dispose();
+                    this.tempMesh.material.dispose();
+                    this.tempMesh = null;
+                }
                 
-                // Add the loaded model
-                this.model = gltf.scene;
-                
-                // Position at the same location as the temporary mesh
-                this.model.position.copy(this.tempMesh.position);
-                
-                // Adjust the scale for zoomed-in camera view
-                const scale = GameConfig.player.aesthetics.scale;
-                this.model.scale.set(scale, scale, scale);
-                
-                // Adjust rotation for proper side-scrolling view
-                this.model.rotation.y = GameConfig.player.aesthetics.rotation;
-                
-                // Log the model's final position and scale for debugging
-                console.log('Spacecraft model positioned at:', this.model.position);
-                console.log('Spacecraft model scale:', scale);
-                
+                // Set the model
+                this.model = model;
                 this.scene.add(this.model);
                 
-                // Make sure the model materials are set properly
-                this.model.traverse((child) => {
-                    if (child.isMesh) {
-                        child.castShadow = true;
-                        child.receiveShadow = true;
-                        
-                        // Enhance materials without washing out colors
-                        if (Array.isArray(child.material)) {
-                            child.material.forEach(mat => {
-                                // Preserve original color without excessive brightening
-                                // Apply ship-specific aesthetics
-                                const hsl = {};
-                                mat.color.getHSL(hsl);
-                                mat.color.setHSL(
-                                    hsl.h,                    // Keep original hue
-                                    Math.min(hsl.s * GameConfig.player.aesthetics.saturationMultiplier, 1), // Increase saturation
-                                    Math.min(hsl.l * GameConfig.player.aesthetics.lightnessMultiplier, 1)  // Increase lightness
-                                );
-                                
-                                // Add subtle emissive for glow without changing color
-                                mat.emissive = mat.color.clone().multiplyScalar(GameConfig.player.aesthetics.emissiveMultiplier);
-                                mat.emissiveIntensity = GameConfig.player.aesthetics.emissiveIntensity;
-                                
-                                // Enhance reflection properties
-                                if (mat.type.includes('MeshStandard')) {
-                                    mat.metalness = GameConfig.player.aesthetics.standardMaterial.metalness;
-                                    mat.roughness = GameConfig.player.aesthetics.standardMaterial.roughness;
-                                } else {
-                                    mat.shininess = GameConfig.player.aesthetics.phongMaterial.shininess;
-                                }
-                                
-                                // Apply global material enhancements
-                                enhanceMaterial(mat, GameConfig);
-                            });
-                        } else if (child.material) {
-                            // Single material
-                            const mat = child.material;
-                            
-                            // Preserve original color without excessive brightening
-                            // Apply ship-specific aesthetics
-                            const hsl = {};
-                            mat.color.getHSL(hsl);
-                            mat.color.setHSL(
-                                hsl.h,                    // Keep original hue
-                                Math.min(hsl.s * GameConfig.player.aesthetics.saturationMultiplier, 1), // Increase saturation
-                                Math.min(hsl.l * GameConfig.player.aesthetics.lightnessMultiplier, 1)  // Increase lightness
-                            );
-                            
-                            // Add subtle emissive for glow without changing color
-                            mat.emissive = mat.color.clone().multiplyScalar(GameConfig.player.aesthetics.emissiveMultiplier);
-                            mat.emissiveIntensity = GameConfig.player.aesthetics.emissiveIntensity;
-                            
-                            // Enhance reflection properties
-                            if (mat.type.includes('MeshStandard')) {
-                                mat.metalness = GameConfig.player.aesthetics.standardMaterial.metalness;
-                                mat.roughness = GameConfig.player.aesthetics.standardMaterial.roughness;
-                            } else {
-                                mat.shininess = GameConfig.player.aesthetics.phongMaterial.shininess;
-                            }
-                            
-                            // Apply global material enhancements
-                            enhanceMaterial(mat, GameConfig);
-                        }
-                    }
-                });
-                
-                // Hide loading message if it exists
-                const loadingElement = document.getElementById('loading');
-                if (loadingElement) loadingElement.style.display = 'none';
-                
-                // Show HUD if it exists
-                const hudElement = document.getElementById('hud');
-                if (hudElement) hudElement.style.display = 'block';
+                // Update UI
+                this.uiManager.setLoadingVisible(false);
+                this.uiManager.setHUDVisible(true);
             },
-            (xhr) => {
+            (progress) => {
                 // Loading progress
-                console.log(`Loading spaceship: ${Math.round((xhr.loaded / xhr.total) * 100)}%`);
-                const loadingElement = document.getElementById('loading');
-                if (loadingElement) {
-                    loadingElement.innerText = `Loading: ${Math.round((xhr.loaded / xhr.total) * 100)}%`;
-                }
+                this.uiManager.setLoadingVisible(true, progress);
             },
             (error) => {
                 console.error('An error occurred while loading the spaceship model:', error);
-                // Use brighter materials but maintain original color scheme
-                this.tempMesh.material = new THREE.MeshPhongMaterial({ 
-                    color: 0xdddddd,         // Light gray - neutral but bright
-                    emissive: 0x444444,      // Subtle emissive for better visibility
-                    emissiveIntensity: 0.5,  // Moderate emissive intensity
-                    shininess: 70,           // Good shininess for reflections
-                    specular: 0xffffff       // White specular highlights
-                });
                 
-                // Make the placeholder mesh larger for better visibility
-                this.tempMesh.scale.set(5, 5, 5);
+                // Use temporary mesh if model loading fails
+                if (this.tempMesh) {
+                    // Enhance temporary mesh to make it look better
+                    this.tempMesh.material = new THREE.MeshPhongMaterial({ 
+                        color: 0xdddddd,         // Light gray - neutral but bright
+                        emissive: 0x444444,      // Subtle emissive for better visibility
+                        emissiveIntensity: 0.5,  // Moderate emissive intensity
+                        shininess: 70,           // Good shininess for reflections
+                        specular: 0xffffff       // White specular highlights
+                    });
+                    
+                    // Make the placeholder mesh larger for better visibility
+                    this.tempMesh.scale.set(5, 5, 5);
+                }
                 
-                // Hide loading message if it exists
-                const loadingElement = document.getElementById('loading');
-                if (loadingElement) loadingElement.style.display = 'none';
-                
-                // Show HUD if it exists
-                const hudElement = document.getElementById('hud');
-                if (hudElement) hudElement.style.display = 'block';
+                // Update UI
+                this.uiManager.setLoadingVisible(false);
+                this.uiManager.setHUDVisible(true);
                 
                 // Set modelLoaded to true since we'll use the placeholder
                 this.modelLoaded = true;
@@ -239,25 +260,13 @@ export class Player {
         );
     }
     
+    /**
+     * Main update method called each frame
+     * @param {number} deltaTime - Time in seconds since the last update
+     * @param {object} inputHandler - Input handler for player controls
+     */
     update(deltaTime, inputHandler) {
-        // Update invulnerability timer
-        if (this.isInvulnerable) {
-            this.invulnerabilityTimer -= deltaTime;
-            
-            // Flash effect when invulnerable
-            if (this.model) {
-                // Visual indication of invulnerability
-                const flashRate = Math.sin(this.invulnerabilityTimer * 10) > 0;
-                this.model.visible = flashRate;
-            }
-            
-            if (this.invulnerabilityTimer <= 0) {
-                this.isInvulnerable = false;
-                if (this.model) {
-                    this.model.visible = true;
-                }
-            }
-        }
+        this.updateInvulnerability(deltaTime);
         
         // Handle movement based on input
         this.handleMovement(deltaTime, inputHandler);
@@ -278,43 +287,37 @@ export class Player {
             this.shootCooldown -= deltaTime;
         }
         
-        // Update bullets
-        this.updateBullets(deltaTime);
+        // Update bullets using BulletManager
+        this.bulletManager.update(deltaTime);
     }
     
-    handleMovement(deltaTime, inputHandler) {
-        // Reset acceleration
-        this.acceleration.set(0, 0, 0);
-        
-        // Apply acceleration based on input
-        if (inputHandler.isPressed('ArrowUp')) {
-            this.acceleration.y += this.maxSpeed * 5;
+    /**
+     * Update invulnerability state and effects
+     * @param {number} deltaTime - Time in seconds since the last update
+     */
+    updateInvulnerability(deltaTime) {
+        if (this._isInvulnerable) {
+            this._invulnerabilityTimer -= deltaTime;
+            
+            // Flash effect when invulnerable
+            if (this.model) {
+                // Visual indication of invulnerability
+                const flashRate = Math.sin(this._invulnerabilityTimer * GameConfig.player.flashFrequency || 10) > 0;
+                this.model.visible = flashRate;
+            }
+            
+            if (this._invulnerabilityTimer <= 0) {
+                this.setInvulnerable(0);
+            }
         }
-        if (inputHandler.isPressed('ArrowDown')) {
-            this.acceleration.y -= this.maxSpeed * 5;
-        }
-        if (inputHandler.isPressed('ArrowLeft')) {
-            this.acceleration.x -= this.maxSpeed * 2;
-        }
-        if (inputHandler.isPressed('ArrowRight')) {
-            this.acceleration.x += this.maxSpeed * 2;
-        }
-        
-        // Apply acceleration to velocity
-        this.velocity.x += this.acceleration.x * deltaTime;
-        this.velocity.y += this.acceleration.y * deltaTime;
-        
-        // Apply damping (drag)
-        const damping = 0.95;
-        this.velocity.x *= damping;
-        this.velocity.y *= damping;
-        
-        // Apply velocity to position
-        const position = this.getPosition();
-        position.x += this.velocity.x * deltaTime;
-        position.y += this.velocity.y * deltaTime;
-        
-        // Apply boundaries from GameConfig
+    }
+    
+    /**
+     * Apply movement boundaries to position
+     * @param {THREE.Vector3} position - Position to constrain
+     * @returns {THREE.Vector3} Constrained position
+     */
+    applyMovementBoundaries(position) {
         position.x = Math.max(
             GameConfig.player.boundaries.xMin, 
             Math.min(position.x, GameConfig.player.boundaries.xMax)
@@ -323,63 +326,118 @@ export class Player {
             GameConfig.player.boundaries.yMin, 
             Math.min(position.y, GameConfig.player.boundaries.yMax)
         );
+        return position;
+    }
+    
+    /**
+     * Handle player movement based on input
+     * @param {number} deltaTime - Time in seconds since the last update
+     * @param {object} inputHandler - Input handler for player controls
+     */
+    handleMovement(deltaTime, inputHandler) {
+        // Movement constants from config or defaults
+        const upAcceleration = GameConfig.player.acceleration?.up || 5;
+        const downAcceleration = GameConfig.player.acceleration?.down || 5;
+        const leftAcceleration = GameConfig.player.acceleration?.left || 2;
+        const rightAcceleration = GameConfig.player.acceleration?.right || 2;
+        const damping = GameConfig.player.damping || 0.95;
+        const tiltFactor = GameConfig.player.tiltFactor || 0.001;
         
-        // Update position
-        this.setPosition(position.x, position.y, position.z);
+        // Reset acceleration
+        this.acceleration.set(0, 0, 0);
+        
+        // Apply acceleration based on input
+        if (inputHandler.isPressed('ArrowUp')) {
+            this.acceleration.y += this.maxSpeed * upAcceleration;
+        }
+        if (inputHandler.isPressed('ArrowDown')) {
+            this.acceleration.y -= this.maxSpeed * downAcceleration;
+        }
+        if (inputHandler.isPressed('ArrowLeft')) {
+            this.acceleration.x -= this.maxSpeed * leftAcceleration;
+        }
+        if (inputHandler.isPressed('ArrowRight')) {
+            this.acceleration.x += this.maxSpeed * rightAcceleration;
+        }
+        
+        // Apply acceleration to velocity
+        this.velocity.x += this.acceleration.x * deltaTime;
+        this.velocity.y += this.acceleration.y * deltaTime;
+        
+        // Apply damping (drag)
+        this.velocity.x *= damping;
+        this.velocity.y *= damping;
+        
+        // Apply velocity to position
+        this._position.x += this.velocity.x * deltaTime;
+        this._position.y += this.velocity.y * deltaTime;
+        
+        // Apply boundaries using extracted method
+        this.applyMovementBoundaries(this._position);
+        
+        // Update displayed position
+        this.updateModelPosition();
         
         // Apply slight tilt based on movement
         if (this.model) {
             // Tilt when moving up/down
-            const pitchAngle = -this.velocity.y * 0.001;
+            const pitchAngle = -this.velocity.y * tiltFactor;
             this.model.rotation.z = pitchAngle;
         }
     }
     
-    shoot() {
-        const position = this.getPosition().clone();
-        // Offset the bullet spawn position slightly in front (right) of the ship
-        position.x += 30;
-        
-        const bullet = new Bullet(this.scene, position);
-        this.bullets.push(bullet);
-    }
-    
-    updateBullets(deltaTime) {
-        // Update all bullets
-        for (let i = this.bullets.length - 1; i >= 0; i--) {
-            const bullet = this.bullets[i];
-            bullet.update(deltaTime);
-            
-            // Remove bullets that have exceeded their lifespan
-            if (bullet.lifeTime <= 0) {
-                bullet.destroy();
-            }
+    /**
+     * Update model position based on internal position
+     */
+    updateModelPosition() {
+        if (this.model) {
+            this.model.position.copy(this._position);
+        } else if (this.tempMesh) {
+            this.tempMesh.position.copy(this._position);
         }
-
-        // remove bullets that are destroyed
-        this.bullets = this.bullets.filter(bullet => !bullet.isDestroyed);
     }
     
-    // This method is called by external entities to request damage to be applied
+    /**
+     * Create and shoot a bullet
+     */
+    shoot() {
+        const bulletPosition = this._position.clone();
+        // Offset the bullet spawn position slightly in front (right) of the ship
+        bulletPosition.x += GameConfig.player.bulletOffset?.x || 30;
+        
+        // Use bullet manager to create bullet
+        this.bulletManager.createBullet(bulletPosition);
+    }
+    
+    /**
+     * Get all active bullets
+     * @returns {Array} Array of active bullets
+     */
+    getBullets() {
+        return this.bulletManager.getBullets();
+    }
+    
+    /**
+     * This method is called by external entities to request damage to be applied
+     * @param {number} amount - Amount of damage to apply
+     * @param {THREE.Vector3} [impactPoint] - Optional point of impact for effects
+     * @returns {boolean} Whether damage was applied (false if invulnerable)
+     */
     receiveDamage(amount, impactPoint = null) {
-        if (this.isInvulnerable) return false;
+        if (this.isInvulnerable()) return false;
         
         // Apply damage internally
         this.takeDamage(amount, impactPoint);
         return true;
     }
     
-    // Private method to handle damage internally
+    /**
+     * Private method to handle damage internally
+     * @param {number} amount - Amount of damage to apply
+     * @param {THREE.Vector3} [impactPoint] - Optional point of impact for effects
+     */
     takeDamage(amount, impactPoint = null) {
-        this.health -= amount;
-        
-        // Ensure health doesn't go below 0
-        if (this.health < 0) {
-            this.health = 0;
-        }
-        
-        // Update health display
-        this.updateHealthDisplay();
+        this.setHealth(this.getHealth() - amount);
         
         // Create explosion effect at the impact point
         if (this.model) {
@@ -388,7 +446,7 @@ export class Player {
                 
                 // Calculate explosion size based on the player's hit sphere and damage amount
                 // This creates bigger explosions for larger impacts
-                const baseSize = this.hitSphereRadius * 0.15; // Base explosion size from player size
+                const baseSize = this._hitSphereRadius * 0.15; // Base explosion size from player size
                 const damageMultiplier = Math.min(amount / 20, 2); // Scale with damage, capped at 2x
                 
                 // Add slight random variation for visual interest
@@ -402,9 +460,9 @@ export class Player {
                 // For major hits (damage > 30), add a secondary smaller explosion at a random offset
                 if (amount > 30) {
                     const offset = new THREE.Vector3(
-                        (Math.random() - 0.5) * this.hitSphereRadius * 0.8,
-                        (Math.random() - 0.5) * this.hitSphereRadius * 0.8, 
-                        (Math.random() - 0.5) * this.hitSphereRadius * 0.8
+                        (Math.random() - 0.5) * this._hitSphereRadius * 0.8,
+                        (Math.random() - 0.5) * this._hitSphereRadius * 0.8, 
+                        (Math.random() - 0.5) * this._hitSphereRadius * 0.8
                     );
                     
                     const secondaryPosition = position.clone().add(offset);
@@ -423,61 +481,75 @@ export class Player {
         }
         
         // Make player invulnerable for a short time
-        this.isInvulnerable = true;
-        this.invulnerabilityTimer = 2.0; // 2 seconds of invulnerability
+        this.setInvulnerable(GameConfig.player.invulnerabilityDuration || 2.0);
         
         // Log on low health
-        if (this.health > 0 && this.health <= 30) {
-            console.log(`WARNING: Low player health: ${this.health}%`);
-        }
-        
-        // Let the game know when player is dead - health check is in Gameplay.animate()
-        if (this.health <= 0) {
-            console.log("Player health is zero - death condition triggered");
+        if (this.getHealth() > 0 && this.getHealth() <= 30) {
+            console.log(`WARNING: Low player health: ${this.getHealth()}%`);
         }
     }
     
+    /**
+     * Get the current player position
+     * @returns {THREE.Vector3} Current position
+     */
     getPosition() {
-        if (this.model) {
-            return this.model.position.clone();
-        }
-        return this.tempMesh.position.clone();
+        return this._position.clone();
     }
     
+    /**
+     * Set the player position
+     * @param {number} x - X coordinate
+     * @param {number} y - Y coordinate
+     * @param {number} z - Z coordinate
+     */
     setPosition(x, y, z) {
-        if (this.model) {
-            this.model.position.set(x, y, z);
-        }
-        this.tempMesh.position.set(x, y, z);
+        this._position.set(x, y, z);
+        this.updateModelPosition();
     }
     
+    /**
+     * Destroy the player and clean up resources
+     */
     destroy() {
         // Remove from scene
         if (this.model) {
             this.scene.remove(this.model);
+            ModelLoader.disposeModel(this.model);
+            this.model = null;
         }
+        
         if (this.tempMesh) {
             this.scene.remove(this.tempMesh);
+            this.tempMesh.geometry.dispose();
+            this.tempMesh.material.dispose();
+            this.tempMesh = null;
         }
+        
         if (this.hitSphere) {
             this.scene.remove(this.hitSphere);
+            this.hitSphere.geometry.dispose();
+            this.hitSphere.material.dispose();
+            this.hitSphere = null;
         }
         
         // Clean up bullets
-        for (const bullet of this.bullets) {
-            bullet.destroy();
-        }
-        this.bullets = [];
+        this.bulletManager.clear();
     }
     
-    // Update the health display
+    /**
+     * Update the health display
+     */
     updateHealthDisplay() {
-        document.getElementById('health').innerText = `Health: ${Math.round(this.health)}%`;
+        this.uiManager.updateHealthDisplay(this.getHealth());
     }
     
-    // Update hit sphere visibility
+    /**
+     * Update hit sphere visibility
+     * @param {boolean} isVisible - Whether hit sphere should be visible
+     */
     updateHitSphereVisibility(isVisible) {
-        this.hitSphereVisible = isVisible;
+        this._hitSphereVisible = isVisible;
         
         if (this.hitSphere && this.hitSphere.material) {
             this.hitSphere.material.opacity = isVisible ? 0.3 : 0;

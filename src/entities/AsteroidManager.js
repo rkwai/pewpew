@@ -89,8 +89,11 @@ export class AsteroidManager {
             if (player) {
                 let bulletHit = false;
                 
-                for (let j = player.bullets.length - 1; j >= 0; j--) {
-                    const bullet = player.bullets[j];
+                // Get bullets from the player's bulletManager instead of directly accessing player.bullets
+                const playerBullets = player.getBullets();
+                
+                for (let j = playerBullets.length - 1; j >= 0; j--) {
+                    const bullet = playerBullets[j];
                     
                     // Skip destroyed bullets
                     if (bullet.isDestroyed) {
@@ -139,9 +142,6 @@ export class AsteroidManager {
                         break;
                     }
                 }
-
-                // remove bullets that are destroyed
-                player.bullets = player.bullets.filter(bullet => !bullet.isDestroyed);
             }
             
             // Remove if out of bounds

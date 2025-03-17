@@ -98,9 +98,9 @@ export const GameConfig = {
     
     // Player settings
     player: {
-        speed: 300, // pixels per second
+        speed: 200, // pixels per second
         health: 100,
-        shootCooldown: 0.3, // seconds
+        shootCooldown: 0.2, // seconds
         hitSphereRadius: 15, // Size of player collision sphere
         hitSphereVisible: false, // Whether to show the hit sphere
         boundaries: {
@@ -149,7 +149,19 @@ export const GameConfig = {
                 emissiveIntensity: 1.0, // Glow intensity
                 shininess: 30           // Moderate shininess
             }
-        }
+        },
+        // Movement parameters (previously hardcoded)
+        acceleration: {
+            up: 5,
+            down: 5,
+            left: 2,
+            right: 2
+        },
+        damping: 0.95,
+        tiltFactor: 0.001,
+        invulnerabilityDuration: 2.0,
+        flashFrequency: 10,
+        bulletOffset: { x: 30, y: 0, z: 0 },
     },
     
     // Camera settings

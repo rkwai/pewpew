@@ -202,4 +202,38 @@ export function enhanceMaterial(material, gameConfig) {
     }
     
     return material;
+}
+
+/**
+ * Enhances the material properties based on game configuration.
+ * @param {THREE.Material} material - The material to enhance.
+ * @param {object} gameConfig - The game configuration object.
+ * @param {object} aestheticsConfig - Specific aesthetics configuration for the object (optional).
+ */
+export function enhanceObjectMaterial(material, gameConfig, aestheticsConfig) {
+    const aesthetics = aestheticsConfig || gameConfig.player.aesthetics; // Default to player aesthetics if not provided
+
+    // Preserve original color without excessive brightening
+    const hsl = {};
+    material.color.getHSL(hsl);
+    material.color.setHSL(
+        hsl.h,                                        // Keep original hue
+        Math.min(hsl.s * aesthetics.saturationMultiplier, 1), // Increase saturation
+        Math.min(hsl.l * aesthetics.lightnessMultiplier, 1)  // Increase lightness
+    );
+
+    // Add subtle emissive for glow without changing color
+    material.emissive = material.color.clone().multiplyScalar(aesthetics.emissiveMultiplier);
+    material.emissiveIntensity = aesthetics.emissiveIntensity;
+
+    // Enhance reflection properties
+    if (material.type.includes('MeshStandard')) {
+        material.metalness = aesthetics.standardMaterial.metalness;
+        material.roughness = aesthetics.standardMaterial.roughness;
+    } else {
+        material.shininess = aesthetics.phongMaterial.shininess;
+    }
+
+    // Apply global material enhancements (assuming enhanceMaterial is already defined and handles global enhancements)
+    enhanceMaterial(material, gameConfig);
 } 
