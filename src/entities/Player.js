@@ -149,13 +149,8 @@ export class Player {
             fire: input.Space || input.KeyZ
         } : null;
         
-        // Log input for debugging (every 60 frames)
         if (!this._frameCounter) this._frameCounter = 0;
         this._frameCounter++;
-        
-        if (this._frameCounter % 60 === 0 && input) {
-            console.log(`Player input: up=${input.ArrowUp}, down=${input.ArrowDown}, left=${input.ArrowLeft}, right=${input.ArrowRight}, fire=${input.Space || input.KeyZ}`);
-        }
         
         // Process inputs
         this._processInput(deltaTime, mappedInput);
@@ -164,7 +159,7 @@ export class Player {
         this._velocity.add(this._acceleration.clone().multiplyScalar(deltaTime));
         
         // Apply drag
-        this._velocity.multiplyScalar(GameConfig.player.damping || 0.95); // Use config drag value
+        this._velocity.multiplyScalar(GameConfig.player.damping || 0.95);
         
         // Update position based on velocity
         this._position.add(this._velocity.clone().multiplyScalar(deltaTime));
@@ -174,27 +169,21 @@ export class Player {
         
         // Update renderer with current position, rotation, and state
         const isAccelerating = Boolean(mappedInput && (mappedInput.up || mappedInput.down || mappedInput.left || mappedInput.right));
-        this.renderer.update(
-            this._position, 
-            this._rotation, 
-            {
-                deltaTime, 
-                isAccelerating,
-                isInvulnerable: this.isInvulnerable(),
-                invulnerableTime: this._invulnerableTime
-            }
-        );
+        if (this.renderer) {
+            this.renderer.update(
+                this._position, 
+                this._rotation, 
+                {
+                    deltaTime, 
+                    isAccelerating,
+                    isInvulnerable: this.isInvulnerable(),
+                    invulnerableTime: this._invulnerableTime
+                }
+            );
+        }
         
         // Update hitbox
         this._updateHitbox();
-        
-        // Debug logging - log position every 60 frames
-        if (!this._frameCounter) this._frameCounter = 0;
-        this._frameCounter++;
-        
-        if (this._frameCounter % 60 === 0) {
-            console.log(`Player update frame ${this._frameCounter}: position (${this._position.x.toFixed(1)}, ${this._position.y.toFixed(1)}, ${this._position.z.toFixed(1)})`);
-        }
         
         // Get game state to see if we should update
         const gameState = Store.getState();
@@ -208,7 +197,9 @@ export class Player {
         }
         
         // Update bullets
-        this.bulletManager.update(deltaTime);
+        if (this.bulletManager) {
+            this.bulletManager.update(deltaTime);
+        }
         
         // Constrain player to screen bounds
         this._constrainToScreen();
@@ -315,7 +306,7 @@ export class Player {
             return;
         }
         
-        // Debug log damage source
+        // Keep damage logging as it's important for debugging
         console.log(`Player taking damage: ${amount}, from position: ${sourcePosition ? `${sourcePosition.x.toFixed(1)}, ${sourcePosition.y.toFixed(1)}, ${sourcePosition.z.toFixed(1)}` : 'unknown'}`);
         
         // Calculate new health
@@ -333,11 +324,7 @@ export class Player {
         // Dispatch to store
         Store.dispatch({
             type: ActionTypes.PLAYER_TAKE_DAMAGE,
-            payload: { 
-                damage: amount, 
-                health: this._health,
-                position: sourcePosition ? sourcePosition.clone() : null
-            }
+            payload: amount
         });
         
         // Make invulnerable for a short time
@@ -355,7 +342,7 @@ export class Player {
             
             // Dispatch to store
             Store.dispatch({
-                type: ActionTypes.PLAYER_DIED,
+                type: ActionTypes.PLAYER_DEATH,
                 payload: { position: this._position.clone() }
             });
         }

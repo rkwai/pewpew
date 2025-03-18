@@ -37,7 +37,8 @@ export class BulletManager {
             entityA.type === CollisionTypes.BULLET ? entityA :
             entityB.type === CollisionTypes.BULLET ? entityB : null;
             
-        if (!bullet || !bullet.isActive) return;
+        // Skip if no bullet or if bullet is already being processed for removal
+        if (!bullet) return;
         
         // Get the other entity
         const otherEntity = entityA === bullet ? entityB : entityA;
@@ -48,11 +49,13 @@ export class BulletManager {
             Events.emit(EventTypes.BULLET_HIT, {
                 bullet: bullet,
                 target: otherEntity,
-                point: bullet.getPosition()
+                point: data.point // Use the collision point from the data
             });
             
-            // Remove the bullet
-            this.removeBullet(bullet);
+            // Queue bullet for removal on next frame to ensure collision processing completes
+            requestAnimationFrame(() => {
+                this.removeBullet(bullet);
+            });
         }
     }
     
@@ -61,19 +64,20 @@ export class BulletManager {
      * @param {Bullet} bullet - The bullet to remove
      */
     removeBullet(bullet) {
-        // Skip if bullet is already being removed
-        if (!bullet || !bullet.isActive) {
-            return;
-        }
+        // Skip if bullet is already being removed or doesn't exist
+        if (!bullet) return;
         
         const index = this._bullets.indexOf(bullet);
         if (index !== -1) {
-            // Remove from array
+            // Remove from array first
             this._bullets.splice(index, 1);
-            // Unregister from collision system
+            
+            // Then unregister from collision system
             Collisions.unregister(bullet, CollisionTypes.BULLET);
-            // Mark bullet as inactive which will trigger cleanup on next update
+            
+            // Finally mark as inactive and destroy
             bullet.hit();
+            bullet.destroy();
         }
     }
     
@@ -117,22 +121,18 @@ export class BulletManager {
     update(deltaTime) {
         // Update existing bullets and filter out inactive ones
         this._bullets = this._bullets.filter(bullet => {
-            // Update the bullet
-            const isActive = bullet.update(deltaTime);
-            
-            if (!isActive) {
-                // Unregister from collision system
-                Collisions.unregister(bullet, CollisionTypes.BULLET);
-                // Ensure bullet is properly destroyed
-                bullet.destroy();
+            // Skip if bullet is already inactive
+            if (!bullet.isActive) {
+                this.removeBullet(bullet);
                 return false;
             }
             
-            // Check if bullet is out of bounds
-            if (bullet.isOutOfBounds(GameConfig.screen?.bounds)) {
-                // Unregister from collision system
-                Collisions.unregister(bullet, CollisionTypes.BULLET);
-                bullet.destroy();
+            // Update the bullet
+            const isActive = bullet.update(deltaTime);
+            
+            // If bullet became inactive during update or is out of bounds, remove it properly
+            if (!isActive || bullet.isOutOfBounds(GameConfig.screen?.bounds)) {
+                this.removeBullet(bullet);
                 return false;
             }
             

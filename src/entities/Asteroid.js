@@ -66,27 +66,14 @@ export class Asteroid {
      */
     update(deltaTime) {
         // Update position based on velocity
-        this.position.add(this.velocity.clone().multiplyScalar(deltaTime));
+        this.position.x += this.velocity.x * deltaTime;
+        this.position.y += this.velocity.y * deltaTime;
+        this.position.z += this.velocity.z * deltaTime;
         
-        // Update the renderer with current state
-        this.renderer.update(this.position, {
-            deltaTime: deltaTime,
-            rotationSpeed: this.rotationSpeed
-        });
-        
-        // Ensure z-position is locked at 0
-        this.position.z = GameConfig.screen.bounds.z;
-        
-        console.log('Asteroid: Updated position:', 
-            this.position.x.toFixed(1), 
-            this.position.y.toFixed(1), 
-            this.position.z.toFixed(1), 
-            'Velocity:', 
-            this.velocity.x.toFixed(1), 
-            this.velocity.y.toFixed(1), 
-            this.velocity.z.toFixed(1));
-        
-        return this.position;
+        // Update renderer if available
+        if (this.renderer) {
+            this.renderer.update(this.position);
+        }
     }
     
     /**

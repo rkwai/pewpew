@@ -305,6 +305,14 @@ export const GameConfig = {
             path: 'assets/models/explosion.glb',
             scale: 1
         },
+        lifetime: 1.5,  // Duration of explosion in seconds
+        colors: [0xff9900, 0xff5500, 0xff0000],  // Colors for explosion light
+        particles: {
+            count: 50,  // Base particle count (will be multiplied by size)
+            size: 3,    // Base particle size
+            speed: 20,  // Base particle speed
+            drag: 0.96  // Particle drag coefficient
+        }
     },
     
     // Add collision settings

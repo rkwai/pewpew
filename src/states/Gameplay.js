@@ -96,8 +96,18 @@ export class Gameplay {
         const bullet = entityA.type === CollisionTypes.BULLET ? entityA : entityB;
         const asteroid = entityA.type === CollisionTypes.ASTEROID ? entityA : entityB;
         
+        console.log('Bullet-Asteroid collision detected:', {
+            bullet: bullet ? 'valid' : 'invalid',
+            bulletActive: bullet ? bullet.isActive : 'N/A',
+            asteroid: asteroid ? 'valid' : 'invalid',
+            asteroidDestroyed: asteroid ? asteroid.isDestroyed : 'N/A',
+            point: point ? `(${point.x.toFixed(2)}, ${point.y.toFixed(2)}, ${point.z.toFixed(2)})` : 'invalid',
+            currentExplosions: this.explosions.length
+        });
+        
         // Skip if either entity is already being destroyed
         if (!asteroid || !bullet || !bullet.isActive || asteroid.isDestroyed) {
+            console.log('Skipping collision handling - invalid entities');
             return;
         }
         
@@ -109,13 +119,18 @@ export class Gameplay {
         
         // Create explosion at collision point
         const explosionSizeRatio = GameConfig.collision?.bulletAsteroidExplosionRatio || 0.5;
-        const explosion = new Explosion(this.scene, point, asteroid.size * explosionSizeRatio);
+        const explosionSize = asteroid.size * explosionSizeRatio;
+        
+        const explosion = new Explosion(this.scene, point, explosionSize);
         this.explosions.push(explosion);
         
         // Let the bullet manager handle the bullet cleanup
         if (this.player && this.player.bulletManager) {
             this.player.bulletManager.removeBullet(bullet);
         }
+        
+        // Make sure to destroy the asteroid
+        this.asteroidManager.destroyAsteroidByEntity(asteroid);
     }
     
     init() {
@@ -142,8 +157,8 @@ export class Gameplay {
         // Show loading progress
         this.uiManager.setLoadingVisible(true, 10);
         
-        // Preload explosion model to avoid delays when first explosion occurs
-        this.preloadExplosionModel();
+        // Preload models
+        Explosion.preloadModel(); // Preload explosion model
         
         // Update game config with actual screen dimensions
         this.updateScreenDimensions();
@@ -244,16 +259,6 @@ export class Gameplay {
         // Render the scene
         this.renderer.render();
         
-        // Debug rendering - log every 60 frames
-        if (this._frameCounter % 60 === 0) {
-            // Log player position in world space for debugging
-            if (this.player && this.player._model) {
-                console.log(`Frame ${this._frameCounter}: Rendering scene with player at (${this.player._model.position.x.toFixed(1)}, ${this.player._model.position.y.toFixed(1)}, ${this.player._model.position.z.toFixed(1)}), visible: ${this.player._model.visible}`);
-            } else {
-                console.log(`Frame ${this._frameCounter}: Rendering scene - player model not available`);
-            }
-        }
-        
         // Request the next animation frame if not destroyed
         if (!this.isDestroyed) {
             requestAnimationFrame(this.animate.bind(this));
@@ -265,10 +270,11 @@ export class Gameplay {
      * @param {number} deltaTime - Time delta in seconds
      */
     updateExplosions(deltaTime) {
-        for (let i = this.explosions.length - 1; i >= 0; i--) {
-            const isActive = this.explosions[i].update(deltaTime);
-            if (!isActive) {
-                this.explosions.splice(i, 1);
+        for (let i = 0; i < this.explosions.length; i++) {
+            const explosion = this.explosions[i];
+            const isActive = explosion && explosion.isActive;
+            if (isActive) {
+                explosion.update(deltaTime);
             }
         }
     }
@@ -541,7 +547,7 @@ export class Gameplay {
         console.log('Preloading explosion model...');
         const loader = new GLTFLoader();
         loader.load(
-            'assets/models/explosion.glb',
+            GameConfig.explosion.model.path,
             (gltf) => {
                 console.log('Explosion model preloaded successfully');
                 Explosion.modelCache = gltf;
@@ -587,5 +593,21 @@ export class Gameplay {
         console.log("Game resumed");
         this.isPaused = false;
         this.clock.start(); // Restart the clock
+    }
+
+    _render() {
+        this._frameCounter++;
+        // Remove frame rendering log
+        this.renderer.render(this.scene, this.camera);
+    }
+
+    _updateExplosions(deltaTime) {
+        for (let i = 0; i < this.explosions.length; i++) {
+            const explosion = this.explosions[i];
+            const isActive = explosion && explosion.isActive;
+            if (isActive) {
+                explosion.update(deltaTime);
+            }
+        }
     }
 } 

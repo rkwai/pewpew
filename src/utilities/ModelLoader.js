@@ -16,15 +16,11 @@ export class ModelLoader {
      */
     static loadModel(modelPath, config, onSuccess, onProgress, onError) {
         const loader = new GLTFLoader();
-        
-        console.log(`ModelLoader: Loading model from: ${modelPath}`);
-        
+                
         return new Promise((resolve, reject) => {
             loader.load(
                 modelPath,
-                (gltf) => {
-                    console.log(`ModelLoader: Model loaded successfully from: ${modelPath}`);
-                    
+                (gltf) => {            
                     // Apply configuration to the model
                     if (config) {
                         ModelLoader.configureModel(gltf.scene, config);
@@ -39,7 +35,6 @@ export class ModelLoader {
                 },
                 (xhr) => {
                     const progress = Math.round((xhr.loaded / xhr.total) * 100);
-                    console.log(`ModelLoader: Loading ${modelPath} progress: ${progress}%`);
                     
                     // Call progress callback if provided
                     if (onProgress) {
@@ -69,14 +64,12 @@ export class ModelLoader {
         // Apply position if specified
         if (config.position) {
             model.position.copy(config.position);
-            console.log('Model positioned at:', model.position);
         }
         
         // Apply scale if specified
         if (config.scale) {
             const scale = typeof config.scale === 'number' ? config.scale : config.scale;
             model.scale.set(scale, scale, scale);
-            console.log('Model scale:', scale);
         }
         
         // Apply rotation if specified

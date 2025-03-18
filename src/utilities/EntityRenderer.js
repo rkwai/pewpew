@@ -141,14 +141,26 @@ export class EntityRenderer {
                     // Add to scene
                     if (this.scene) this.scene.add(this.model);
                     
+                    // Apply any pending transform
+                    if (this._pendingTransform) {
+                        if (this._pendingTransform.position) {
+                            this.model.position.copy(this._pendingTransform.position);
+                        }
+                        if (this._pendingTransform.rotation) {
+                            this.model.rotation.copy(this._pendingTransform.rotation);
+                        }
+                        this._pendingTransform = null;
+                    }
+                    
                     resolve(this.model);
                 },
-                (progress) => {
-                    console.log(`Loading model ${modelPath}: ${progress}%`);
+                (xhr) => {
+                    // Progress callback
                 },
                 (error) => {
-                    console.error(`Failed to load model ${modelPath}:`, error);
-                    reject(new Error(`Failed to load model ${modelPath}: ${error.message}`));
+                    // Error callback
+                    console.error('Error loading model:', error);
+                    reject(error);
                 }
             );
         });
@@ -161,20 +173,16 @@ export class EntityRenderer {
      */
     updateTransform(position, rotation) {
         if (!this.model) {
-            console.warn('EntityRenderer: Cannot update transform - model does not exist');
+            // Store the transform for when the model is loaded
+            this._pendingTransform = {
+                position: position ? position.clone() : null,
+                rotation: rotation ? rotation.clone() : null
+            };
             return;
         }
         
         if (position) {
             this.model.position.copy(position);
-            console.log('EntityRenderer: Updated model position to:', 
-                this.model.position.x.toFixed(1),
-                this.model.position.y.toFixed(1),
-                this.model.position.z.toFixed(1),
-                'World position:',
-                this.model.getWorldPosition(new THREE.Vector3()).toArray().map(v => v.toFixed(1)).join(', '),
-                'Visible:', this.model.visible,
-                'In scene:', this.model.parent === this.scene);
         }
         
         if (rotation) {
@@ -268,5 +276,11 @@ export class EntityRenderer {
         this.meshes = [];
         this.materials = [];
         this.scene = null;
+    }
+
+    updatePosition(position) {
+        if (!this.model || !position) return;
+        
+        this.model.position.copy(position);
     }
 } 

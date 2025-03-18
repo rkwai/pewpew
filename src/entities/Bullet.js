@@ -118,6 +118,10 @@ export class Bullet {
      * @returns {THREE.Vector3} Hit sphere position
      */
     getHitSpherePosition() {
+        // If position is null, return a default position to prevent errors
+        if (!this.position) {
+            return new THREE.Vector3(0, 0, 0);
+        }
         return this.position.clone();
     }
     
@@ -161,18 +165,21 @@ export class Bullet {
      * Clean up resources
      */
     destroy() {
-        this.isActive = false;
+        // Store final position for any remaining collision checks
+        const finalPosition = this.position ? this.position.clone() : null;
         
-        // Clean up renderer
+        // Clean up renderer first
         if (this.renderer) {
             this.renderer.dispose();
             this.renderer = null;
         }
         
-        // Clear references
+        // Clear most references
         this.scene = null;
-        this.position = null;
         this.direction = null;
         this.velocity = null;
+        
+        // Clear position last, but keep the final position available
+        this.position = finalPosition;
     }
 } 

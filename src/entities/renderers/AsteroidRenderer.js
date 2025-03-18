@@ -24,9 +24,7 @@ export class AsteroidRenderer extends EntityRenderer {
         if (!GameConfig.asteroid?.model?.path) {
             throw new Error('Asteroid model path not specified in GameConfig');
         }
-        
-        console.log('AsteroidRenderer: Creating model with size:', this.size);
-        
+                
         // Load the asteroid model
         this.loadModel(GameConfig.asteroid.model.path, {
             scale: this.size * (GameConfig.asteroid.model.scale || 1),
@@ -37,7 +35,6 @@ export class AsteroidRenderer extends EntityRenderer {
                 Math.random() * Math.PI
             )
         }).then(model => {
-            console.log('AsteroidRenderer: Model loaded and added to scene:', model.position);
             // Ensure model is visible
             model.visible = true;
             // Add to scene if not already added
@@ -162,12 +159,12 @@ export class AsteroidRenderer extends EntityRenderer {
      */
     update(position, state = {}) {
         // Update position
-        this.updateTransform(position);
-        console.log('AsteroidRenderer: Updated position to:', position.x, position.y, position.z, 
-            'Model exists:', !!this.model, 
-            'Model visible:', this.model?.visible,
-            'Model in scene:', this.model?.parent === this.scene,
-            'Model world position:', this.model?.getWorldPosition(new THREE.Vector3()));
+        this.updatePosition(position);
+        
+        // Update any other state properties
+        if (state.scale) {
+            this.model.scale.copy(state.scale);
+        }
         
         // Update rotation
         if (state.rotationSpeed) {
@@ -197,5 +194,18 @@ export class AsteroidRenderer extends EntityRenderer {
     dispose() {
         // Call parent class dispose
         super.dispose();
+    }
+
+    _onModelLoaded(model) {
+        if (!model) return;
+        
+        this.model = model;
+        this.scene.add(model);
+    }
+
+    updatePosition(position) {
+        if (!this.model || !position) return;
+        
+        this.model.position.copy(position);
     }
 } 

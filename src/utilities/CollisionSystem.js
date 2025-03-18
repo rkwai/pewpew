@@ -161,6 +161,11 @@ export class CollisionSystem {
      * @param {string} typeB - Collision type of second group
      */
     _checkCollisions(groupA, groupB, typeA, typeB) {
+        // Skip if either group is empty
+        if (!groupA.length || !groupB.length) {
+            return;
+        }
+
         groupA.forEach(entityA => {
             // Skip invalid, inactive or destroyed entities
             if (!entityA || !this._isValidCollider(entityA) || entityA.isDestroyed) {
@@ -186,7 +191,7 @@ export class CollisionSystem {
                     if (!posA || !posB || !posA.distanceTo || !posB.distanceTo) {
                         return; // Skip if positions are invalid or missing required methods
                     }
-                    
+                                        
                     // Perform collision check
                     if (checkCollision(entityA, entityB)) {
                         // Get collision point (midpoint between entity centers for simplicity)
@@ -195,6 +200,12 @@ export class CollisionSystem {
                             (posA.y + posB.y) / 2,
                             (posA.z + posB.z) / 2
                         );
+                        
+                        console.log('Collision detected:', {
+                            typeA,
+                            typeB,
+                            point: `(${collisionPoint.x.toFixed(2)}, ${collisionPoint.y.toFixed(2)}, ${collisionPoint.z.toFixed(2)})`
+                        });
                         
                         // Emit collision event
                         this._emitCollision(entityA, entityB, typeA, typeB, collisionPoint);

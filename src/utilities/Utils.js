@@ -13,6 +13,42 @@ export function randomInt(min, max) {
 }
 
 /**
+ * Get hit sphere data from an object
+ * @param {Object} obj - Object to get hit sphere from
+ * @returns {Object|null} - Hit sphere data with position and radius, or null if invalid
+ */
+export function getHitSphere(obj) {
+    if (!obj || obj.isDestroyed) return null;
+    
+    let position, radius;
+    
+    // Case 1: Object has getHitSpherePosition or getHitSphereWorldPosition method
+    if (typeof obj.getHitSpherePosition === 'function') {
+        position = obj.getHitSpherePosition();
+        radius = typeof obj.getHitSphereRadius === 'function' ? obj.getHitSphereRadius() : obj._hitSphereRadius;
+    } else if (typeof obj.getHitSphereWorldPosition === 'function') {
+        position = obj.getHitSphereWorldPosition();
+        radius = typeof obj.getHitSphereRadius === 'function' ? obj.getHitSphereRadius() : obj._hitSphereRadius;
+    }
+    // Case 2: Object has position and radius directly
+    else if (obj.position && obj.radius !== undefined) {
+        position = obj.position;
+        radius = obj.radius;
+    }
+    // Case 3: Three.js object with geometry.boundingSphere
+    else if (obj.position && obj.geometry && obj.geometry.boundingSphere) {
+        position = obj.position;
+        radius = obj.geometry.boundingSphere.radius * (obj.scale ? obj.scale.x : 1);
+    }
+    
+    if (!position || !radius || isNaN(radius)) {
+        return null;
+    }
+    
+    return { position, radius };
+}
+
+/**
  * Check if two objects collide using sphere collision detection
  * This is the single source of truth for collision detection in the game
  * 
@@ -26,82 +62,17 @@ export function randomInt(min, max) {
  * 3. Three.js objects with position and geometry.boundingSphere
  */
 export function checkCollision(obj1, obj2) {
-    // Check if either object is null or undefined or marked as destroyed
-    if (!obj1 || !obj2 || obj1.isDestroyed || obj2.isDestroyed) {
+    const hitSphere1 = getHitSphere(obj1);
+    const hitSphere2 = getHitSphere(obj2);
+    
+    if (!hitSphere1 || !hitSphere2) {
         return false;
     }
     
-    // Get position and radius for first object
-    let pos1, radius1;
+    const distance = hitSphere1.position.distanceTo(hitSphere2.position);
+    const combinedRadii = hitSphere1.radius + hitSphere2.radius;
     
-    // Case 1: Object has getHitSpherePosition or getHitSphereWorldPosition method
-    if (typeof obj1.getHitSpherePosition === 'function') {
-        pos1 = obj1.getHitSpherePosition();
-        radius1 = typeof obj1.getHitSphereRadius === 'function' ? obj1.getHitSphereRadius() : obj1._hitSphereRadius;
-    } else if (typeof obj1.getHitSphereWorldPosition === 'function') {
-        pos1 = obj1.getHitSphereWorldPosition();
-        radius1 = typeof obj1.getHitSphereRadius === 'function' ? obj1.getHitSphereRadius() : obj1._hitSphereRadius;
-    }
-    // Case 2: Object has position and radius directly
-    else if (obj1.position && obj1.radius !== undefined) {
-        pos1 = obj1.position;
-        radius1 = obj1.radius;
-    }
-    // Case 3: Three.js object with geometry.boundingSphere
-    else if (obj1.position && obj1.geometry && obj1.geometry.boundingSphere) {
-        pos1 = obj1.position;
-        radius1 = obj1.geometry.boundingSphere.radius * (obj1.scale ? obj1.scale.x : 1);
-    }
-    // Invalid object
-    else {
-        console.warn('Invalid object passed to checkCollision, unable to determine collision properties', obj1);
-        return false;
-    }
-    
-    // Get position and radius for second object
-    let pos2, radius2;
-    
-    // Case 1: Object has getHitSpherePosition or getHitSphereWorldPosition method
-    if (typeof obj2.getHitSpherePosition === 'function') {
-        pos2 = obj2.getHitSpherePosition();
-        radius2 = typeof obj2.getHitSphereRadius === 'function' ? obj2.getHitSphereRadius() : obj2._hitSphereRadius;
-    } else if (typeof obj2.getHitSphereWorldPosition === 'function') {
-        pos2 = obj2.getHitSphereWorldPosition();
-        radius2 = typeof obj2.getHitSphereRadius === 'function' ? obj2.getHitSphereRadius() : obj2._hitSphereRadius;
-    }
-    // Case 2: Object has position and radius directly
-    else if (obj2.position && obj2.radius !== undefined) {
-        pos2 = obj2.position;
-        radius2 = obj2.radius;
-    }
-    // Case 3: Three.js object with geometry.boundingSphere
-    else if (obj2.position && obj2.geometry && obj2.geometry.boundingSphere) {
-        pos2 = obj2.position;
-        radius2 = obj2.geometry.boundingSphere.radius * (obj2.scale ? obj2.scale.x : 1);
-    }
-    // Invalid object
-    else {
-        console.warn('Invalid object passed to checkCollision, unable to determine collision properties', obj2);
-        return false;
-    }
-    
-    // Check if positions are valid
-    if (!pos1 || !pos2 || !pos1.distanceTo || !pos2.distanceTo) {
-        console.warn('Invalid positions in checkCollision');
-        return false;
-    }
-    
-    // Check if radii are valid
-    if (radius1 === undefined || radius2 === undefined || isNaN(radius1) || isNaN(radius2)) {
-        console.warn('Invalid radii in checkCollision');
-        return false;
-    }
-    
-    // Calculate distance between objects
-    const distance = pos1.distanceTo(pos2);
-    
-    // Check if objects are colliding
-    return distance < (radius1 + radius2);
+    return distance <= combinedRadii;
 }
 
 /**

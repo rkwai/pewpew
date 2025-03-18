@@ -20,25 +20,13 @@ export class Explosion {
             position = new THREE.Vector3(0, 0, 0);
             console.warn('Explosion created without position, using (0,0,0)');
         }
-        
+                
         this.position = position.clone();
         this.size = size;
         this.isActive = true;
         
         // Create renderer for visuals
         this.renderer = new ExplosionRenderer(scene, position, size);
-        
-        // Register with the Gameplay state for updates if available
-        try {
-            if (window.gameState && Array.isArray(window.gameState.explosions)) {
-                window.gameState.explosions.push(this);
-            } else {
-                // If no global state is available, this explosion will need to be manually updated
-                console.debug('No global game state available for explosion registration');
-            }
-        } catch (e) {
-            console.error('Error registering explosion with game state:', e);
-        }
     }
     
     /**
@@ -79,7 +67,9 @@ export class Explosion {
      * @returns {boolean} True if explosion is still active, false if complete
      */
     update(deltaTime) {
-        if (!this.isActive || !this.renderer) return false;
+        if (!this.isActive || !this.renderer) {
+            return false;
+        }
         
         // Update through renderer
         const isStillActive = this.renderer.update(deltaTime);

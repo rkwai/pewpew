@@ -79,7 +79,6 @@ export class AsteroidManager {
             const spawnInterval = 1 / this._spawnRate;
             if (this._spawnTimer >= spawnInterval) {
                 this._spawnTimer = 0;
-                console.log('AsteroidManager: Spawning new asteroid, current count:', this._asteroids.length);
                 this.spawnAsteroid();
             }
         }
@@ -100,7 +99,6 @@ export class AsteroidManager {
             
             // Check if asteroid is out of bounds
             if (asteroid.isOutOfBounds()) {
-                console.log('AsteroidManager: Asteroid out of bounds, removing');
                 this.removeAsteroid(i);
             }
         }
@@ -133,7 +131,6 @@ export class AsteroidManager {
             0 // Z-axis locked at 0
         );
         
-        console.log('AsteroidManager: Creating asteroid with size:', size, 'at position:', spawnPosition.x, spawnPosition.y, spawnPosition.z);
         
         // Create new asteroid
         const asteroid = new Asteroid(this.scene, {
@@ -170,7 +167,6 @@ export class AsteroidManager {
             asteroid.isDestroyed = true;
             
             // Unregister from collision system
-            console.log(`Unregistering asteroid from collision system at index ${index}, position: ${asteroid.position.x.toFixed(1)}, ${asteroid.position.y.toFixed(1)}, ${asteroid.position.z.toFixed(1)}`);
             Collisions.unregister(asteroid, CollisionTypes.ASTEROID);
             
             // Clean up resources
@@ -196,9 +192,7 @@ export class AsteroidManager {
             const explosionSizeRatio = GameConfig.asteroid?.explosionSizeRatio || 0.3;
             
             // Create explosion at asteroid position
-            const explosion = new Explosion(this.scene, impactPoint || position, {
-                size: size * explosionSizeRatio
-            });
+            const explosion = new Explosion(this.scene, impactPoint || position, size * explosionSizeRatio);
             
             // Unregister from collision system
             Collisions.unregister(asteroid, CollisionTypes.ASTEROID);
