@@ -5,6 +5,10 @@ import { enhanceObjectMaterial } from './Utils.js';
  * Utility for loading and managing 3D models
  */
 export class ModelLoader {
+    // Static cache for models
+    static modelCache = new Map();
+    static textureCache = new Map();
+
     /**
      * Load a GLTF model from the given path
      * @param {string} modelPath - Path to the GLTF model file
@@ -15,23 +19,65 @@ export class ModelLoader {
      * @returns {Promise} Promise that resolves with the loaded model
      */
     static loadModel(modelPath, config, onSuccess, onProgress, onError) {
+        // Check if model is already cached
+        if (ModelLoader.modelCache.has(modelPath)) {
+            const cachedModel = ModelLoader.modelCache.get(modelPath);
+            const clonedModel = cachedModel.clone();
+            
+            // Apply configuration to the cloned model
+            if (config) {
+                ModelLoader.configureModel(clonedModel, config);
+            }
+            
+            // Call success callback if provided
+            if (onSuccess) {
+                onSuccess(clonedModel);
+            }
+            
+            return Promise.resolve(clonedModel);
+        }
+
         const loader = new GLTFLoader();
                 
         return new Promise((resolve, reject) => {
             loader.load(
                 modelPath,
                 (gltf) => {            
-                    // Apply configuration to the model
+                    // Cache the original model
+                    ModelLoader.modelCache.set(modelPath, gltf.scene);
+                    
+                    // Cache all textures used in the model
+                    gltf.scene.traverse((node) => {
+                        if (node.isMesh && node.material) {
+                            const materials = Array.isArray(node.material) ? node.material : [node.material];
+                            materials.forEach(material => {
+                                ['map', 'lightMap', 'bumpMap', 'normalMap', 'specularMap', 'envMap'].forEach(mapType => {
+                                    if (material[mapType]) {
+                                        const texture = material[mapType];
+                                        const textureKey = `${modelPath}_${mapType}_${texture.uuid}`;
+                                        if (!ModelLoader.textureCache.has(textureKey)) {
+                                            ModelLoader.textureCache.set(textureKey, texture);
+                                        }
+                                    }
+                                });
+                            });
+                        }
+                    });
+                    
+                    // Clone the model for this instance
+                    const clonedModel = gltf.scene.clone();
+                    
+                    // Apply configuration to the cloned model
                     if (config) {
-                        ModelLoader.configureModel(gltf.scene, config);
+                        ModelLoader.configureModel(clonedModel, config);
                     }
                     
                     // Call success callback if provided
                     if (onSuccess) {
-                        onSuccess(gltf.scene);
+                        onSuccess(clonedModel);
                     }
                     
-                    resolve(gltf.scene);
+                    resolve(clonedModel);
                 },
                 (xhr) => {
                     const progress = Math.round((xhr.loaded / xhr.total) * 100);
@@ -56,9 +102,9 @@ export class ModelLoader {
     }
     
     /**
-     * Configure a loaded model with position, scale, rotation, and materials
-     * @param {THREE.Object3D} model - The loaded model
-     * @param {object} config - Configuration object containing position, scale, rotation, gameConfig
+     * Configure a model with the given settings
+     * @param {THREE.Object3D} model - The model to configure
+     * @param {object} config - Configuration settings
      */
     static configureModel(model, config) {
         // Apply position if specified
@@ -66,36 +112,29 @@ export class ModelLoader {
             model.position.copy(config.position);
         }
         
+        // Apply rotation if specified
+        if (config.rotation) {
+            model.rotation.copy(config.rotation);
+        }
+        
         // Apply scale if specified
-        if (config.scale) {
-            const scale = typeof config.scale === 'number' ? config.scale : config.scale;
+        if (config.scale !== undefined) {
+            const scale = typeof config.scale === 'number' ? config.scale : 1;
             model.scale.set(scale, scale, scale);
         }
         
-        // Apply rotation if specified
-        if (config.rotation) {
-            if (config.rotation.x !== undefined) model.rotation.x = config.rotation.x;
-            if (config.rotation.y !== undefined) model.rotation.y = config.rotation.y;
-            if (config.rotation.z !== undefined) model.rotation.z = config.rotation.z;
+        // Apply visibility if specified
+        if (config.visible !== undefined) {
+            model.visible = config.visible;
         }
         
-        // Enhance materials if gameConfig is provided
-        if (config.gameConfig) {
-            model.traverse((child) => {
-                if (child.isMesh && child.material) {
-                    child.castShadow = config.castShadow !== false;
-                    child.receiveShadow = config.receiveShadow !== false;
-                    
-                    if (Array.isArray(child.material)) {
-                        child.material.forEach(mat => {
-                            enhanceObjectMaterial(mat, config.gameConfig, config.aesthetics);
-                        });
-                    } else {
-                        enhanceObjectMaterial(child.material, config.gameConfig, config.aesthetics);
-                    }
-                }
-            });
-        }
+        // Configure shadows
+        model.traverse((node) => {
+            if (node.isMesh) {
+                node.castShadow = config.castShadow !== false;
+                node.receiveShadow = config.receiveShadow !== false;
+            }
+        });
     }
     
     /**
@@ -120,5 +159,13 @@ export class ModelLoader {
                 }
             }
         });
+    }
+
+    /**
+     * Clear the model and texture caches
+     */
+    static clearCache() {
+        ModelLoader.modelCache.clear();
+        ModelLoader.textureCache.clear();
     }
 } 

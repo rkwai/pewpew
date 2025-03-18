@@ -188,38 +188,34 @@ export const GameConfig = {
         speed: 400, // Increased from 250 for faster movement
         size: 5,    // Increased from 5 for better visibility
         color: 0x000000,
-        brightness: 15 , // Controls emissive intensity
-        lifespan: 10, // Increased from 2 to 10 seconds to ensure bullets can reach screen edge
         radius: 5,
         damage: 50,
+        lifespan: 10, // Increased from 2 to 10 seconds to ensure bullets can reach screen edge
         
-        // Pooling settings (duplicated from objectPool for convenience)
-        poolSize: 30,
+        // Pooling settings
+        poolSize: 100, // Increased from 30 to handle rapid firing
+        maxBullets: 100, // Maximum number of bullets that can exist at once
         
-        // Add debug settings for object pooling
+        // Debug settings
         debug: {
             showHitSphere: false,
             logCleanup: false,
             logPoolStats: false,
-            logPositions: false, // Log bullet creation positions
-            showPlaceholder: false // Show placeholder if model fails to load
+            logPositions: false,
+            showPlaceholder: false
         },
+        
         // Model settings
         model: {
             path: 'assets/models/missile.glb',
             scale: 15
         },
+        
         direction: {
             x: 1,  // Bullets move right
             y: 0,
             z: 0
-        },
-        // Disable trails that might be causing dots
-        trailEnabled: false,
-        trailLength: 10,
-        // Bullet light pulsing effect parameters
-        pulseSpeed: 10,    // Speed of pulsation
-        pulseAmount: 0.3,  // Amount of pulsation (intensity variation)
+        }
     },
     
     // Asteroid settings
@@ -293,8 +289,8 @@ export const GameConfig = {
             expandAmount: 10   // How many to add when pool is empty
         },
         bullet: {
-            initialSize: 30,   // Initial pool size for bullets
-            expandAmount: 15   // How many to add when pool is empty
+            initialSize: 100,   // Increased from 30 to match bullet poolSize
+            expandAmount: 20    // Increased from 15 to handle bursts better
         }
     },
     

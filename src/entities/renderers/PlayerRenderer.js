@@ -9,7 +9,13 @@ export class PlayerRenderer extends EntityRenderer {
     constructor(scene) {
         super(scene);
         this.invulnerabilityEffect = null;
+        this.hitSphere = null;
         this._createModel();
+        
+        // Create hit sphere if debug is enabled
+        if (GameConfig.player && GameConfig.player.debug) {
+            this.createHitSphere();
+        }
     }
 
     /**
@@ -30,6 +36,57 @@ export class PlayerRenderer extends EntityRenderer {
         }).catch(error => {
             throw error;
         });
+    }
+
+    /**
+     * Create a sphere to visualize the hit box
+     */
+    createHitSphere() {
+        // Skip if hit sphere already exists
+        if (this.hitSphere) return;
+        
+        // Create a sphere to visualize the hitbox
+        const sphereGeometry = new THREE.SphereGeometry(1, 16, 16); // Base size of 1 unit
+        const sphereMaterial = new THREE.MeshBasicMaterial({
+            color: 0x00ff00,
+            transparent: true,
+            opacity: 0.3,
+            depthTest: false
+        });
+        
+        // Create mesh
+        this.hitSphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+        
+        // Set initial scale to match player hit sphere radius
+        const hitSphereScale = GameConfig.player.hitSphereRadius || 15;
+        this.hitSphere.scale.set(hitSphereScale, hitSphereScale, hitSphereScale);
+        
+        // Add to model if exists, otherwise add to scene
+        if (this.model) {
+            this.model.add(this.hitSphere);
+        } else {
+            this.scene.add(this.hitSphere);
+        }
+        
+        // Track for cleanup
+        this.debugHelpers.push(this.hitSphere);
+        
+        // Set initial visibility
+        this.setHitSphereVisible(
+            GameConfig.player && 
+            GameConfig.player.debug && 
+            GameConfig.player.debug.showHitSphere
+        );
+    }
+
+    /**
+     * Set hit sphere visibility
+     * @param {boolean} visible - Whether the hit sphere should be visible
+     */
+    setHitSphereVisible(visible) {
+        if (this.hitSphere) {
+            this.hitSphere.visible = visible;
+        }
     }
 
     /**
@@ -84,6 +141,11 @@ export class PlayerRenderer extends EntityRenderer {
         // Update position and rotation
         this.updateTransform(position, rotation);
         
+        // Update hit sphere position
+        if (this.hitSphere) {
+            this.hitSphere.position.copy(position);
+        }
+        
         // Update invulnerability effect
         this.updateInvulnerabilityEffect(
             state.isInvulnerable || false, 
@@ -95,14 +157,56 @@ export class PlayerRenderer extends EntityRenderer {
      * Clean up resources
      */
     dispose() {
-        // Clean up invulnerability effect
-        if (this.invulnerabilityEffect) {
-            if (this.invulnerabilityEffect.parent) {
-                this.invulnerabilityEffect.parent.remove(this.invulnerabilityEffect);
+        if (this.hitSphere) {
+            if (this.hitSphere.geometry) {
+                this.hitSphere.geometry.dispose();
             }
-            if (this.invulnerabilityEffect.geometry) this.invulnerabilityEffect.geometry.dispose();
-            if (this.invulnerabilityEffect.material) this.invulnerabilityEffect.material.dispose();
+            if (this.hitSphere.material) {
+                this.hitSphere.material.dispose();
+            }
+            this.scene.remove(this.hitSphere);
+            this.hitSphere = null;
+        }
+
+        if (this.invulnerabilityEffect) {
+            if (this.invulnerabilityEffect.geometry) {
+                this.invulnerabilityEffect.geometry.dispose();
+            }
+            if (this.invulnerabilityEffect.material) {
+                this.invulnerabilityEffect.material.dispose();
+            }
+            this.scene.remove(this.invulnerabilityEffect);
             this.invulnerabilityEffect = null;
+        }
+
+        if (this.model) {
+            // Remove from scene first
+            this.scene.remove(this.model);
+            
+            // Dispose of geometries and materials, but don't dispose of cached textures
+            this.model.traverse((node) => {
+                if (node.isMesh) {
+                    if (node.geometry) {
+                        node.geometry.dispose();
+                    }
+                    
+                    if (node.material) {
+                        const materials = Array.isArray(node.material) ? node.material : [node.material];
+                        materials.forEach(material => {
+                            // Don't dispose of textures as they are cached
+                            // Just null the references
+                            ['map', 'lightMap', 'bumpMap', 'normalMap', 'specularMap', 'envMap'].forEach(mapType => {
+                                if (material[mapType]) {
+                                    material[mapType] = null;
+                                }
+                            });
+                            material.dispose();
+                        });
+                    }
+                }
+            });
+            
+            this.model = null;
         }
         
         // Call parent class dispose method

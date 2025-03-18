@@ -53,7 +53,7 @@ export class AsteroidRenderer extends EntityRenderer {
         });
 
         // Create hit sphere if debug is enabled
-        if (GameConfig.debug && GameConfig.debug.enabled) {
+        if (GameConfig.asteroid && GameConfig.asteroid.debug) {
             this.createHitSphere();
         }
     }
@@ -90,7 +90,7 @@ export class AsteroidRenderer extends EntityRenderer {
         if (this.hitSphere) return;
         
         // Create a sphere to visualize the hitbox
-        const sphereGeometry = new THREE.SphereGeometry(this.size * 10, 16, 16);
+        const sphereGeometry = new THREE.SphereGeometry(1, 16, 16); // Base size of 1 unit
         const sphereMaterial = new THREE.MeshBasicMaterial({
             color: 0x00ff00,
             transparent: true,
@@ -100,6 +100,10 @@ export class AsteroidRenderer extends EntityRenderer {
         
         // Create mesh
         this.hitSphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+        
+        // Set initial scale to match collision radius
+        const hitSphereScale = this.size; // Match the actual asteroid size
+        this.hitSphere.scale.set(hitSphereScale, hitSphereScale, hitSphereScale);
         
         // Add to model if exists, otherwise add to scene
         if (this.model) {
@@ -184,6 +188,7 @@ export class AsteroidRenderer extends EntityRenderer {
         }
         
         if (this.hitSphere) {
+            // Scale hit sphere to match actual size
             this.hitSphere.scale.set(newSize, newSize, newSize);
         }
     }
@@ -192,6 +197,47 @@ export class AsteroidRenderer extends EntityRenderer {
      * Clean up resources
      */
     dispose() {
+        if (this.hitSphere) {
+            if (this.hitSphere.geometry) {
+                this.hitSphere.geometry.dispose();
+            }
+            if (this.hitSphere.material) {
+                this.hitSphere.material.dispose();
+            }
+            this.scene.remove(this.hitSphere);
+            this.hitSphere = null;
+        }
+
+        if (this.model) {
+            // Remove from scene first
+            this.scene.remove(this.model);
+            
+            // Dispose of geometries and materials, but don't dispose of cached textures
+            this.model.traverse((node) => {
+                if (node.isMesh) {
+                    if (node.geometry) {
+                        node.geometry.dispose();
+                    }
+                    
+                    if (node.material) {
+                        const materials = Array.isArray(node.material) ? node.material : [node.material];
+                        materials.forEach(material => {
+                            // Don't dispose of textures as they are cached
+                            // Just null the references
+                            ['map', 'lightMap', 'bumpMap', 'normalMap', 'specularMap', 'envMap'].forEach(mapType => {
+                                if (material[mapType]) {
+                                    material[mapType] = null;
+                                }
+                            });
+                            material.dispose();
+                        });
+                    }
+                }
+            });
+            
+            this.model = null;
+        }
+
         // Call parent class dispose
         super.dispose();
     }
@@ -204,8 +250,14 @@ export class AsteroidRenderer extends EntityRenderer {
     }
 
     updatePosition(position) {
-        if (!this.model || !position) return;
+        if (!position) return;
         
-        this.model.position.copy(position);
+        if (this.model) {
+            this.model.position.copy(position);
+        }
+        
+        if (this.hitSphere) {
+            this.hitSphere.position.copy(position);
+        }
     }
 } 

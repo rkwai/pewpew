@@ -62,7 +62,7 @@ export class Bullet {
         
         // Update age and check lifetime
         this.age += deltaTime;
-        if (this.age >= (GameConfig.bullet?.lifetime || 2.0)) {
+        if (this.age >= this.lifespan) {
             this.hit();
             return false;
         }
@@ -78,9 +78,12 @@ export class Bullet {
         // Check if bullet is out of screen bounds
         const screenBounds = GameConfig.screen?.bounds;
         if (screenBounds) {
-            // Only check if bullet has gone far enough off the right side of screen
-            const offScreenThreshold = 500; // Much larger threshold
-            if (this.position.x > screenBounds.maxX + offScreenThreshold) {
+            // Add a large margin to allow bullets to travel further
+            const margin = 1000;
+            if (this.position.x < screenBounds.minX - margin || 
+                this.position.x > screenBounds.maxX + margin ||
+                this.position.y < screenBounds.minY - margin || 
+                this.position.y > screenBounds.maxY + margin) {
                 this.isActive = false;
                 return false;
             }
