@@ -3,7 +3,7 @@
  * Implements a Redux-like store pattern with a single state object
  * and methods to update it in a controlled manner
  */
-import { Events } from './EventSystem.js';
+import { Events } from '../states/EventSystem.js';
 
 // Define action types as constants to avoid typos
 export const ActionTypes = {

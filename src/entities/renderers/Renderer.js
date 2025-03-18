@@ -1,5 +1,6 @@
-import { THREE } from './ThreeImports.js';
-import { GameConfig } from '../config/game.config.js';
+import { THREE } from '../../utilities/ThreeImports.js';
+import { GameConfig } from '../../config/game.config.js';
+import { ModelLoader } from '../../utilities/ModelLoader.js';
 
 /**
  * Manages rendering responsibilities for the game
@@ -13,6 +14,11 @@ export class Renderer {
             grid: null,
             axes: null
         };
+        
+        // Track texture usage
+        this.maxTextureUnits = 12; // Keep below WebGL's limit of 16
+        this.checkTextureInterval = 5000; // Check every 5 seconds
+        this.textureCheckTimer = null;
     }
 
     /**
@@ -78,6 +84,39 @@ export class Renderer {
         
         // Handle window resize
         window.addEventListener('resize', this.onWindowResize.bind(this));
+        
+        // Start texture monitoring
+        this.startTextureMonitoring();
+    }
+    
+    /**
+     * Start texture monitoring to prevent WebGL errors
+     */
+    startTextureMonitoring() {
+        // Clear any existing timer
+        if (this.textureCheckTimer) {
+            clearInterval(this.textureCheckTimer);
+        }
+        
+        // Set up a periodic check for texture usage
+        this.textureCheckTimer = setInterval(() => {
+            this.checkTextureUsage();
+        }, this.checkTextureInterval);
+    }
+    
+    /**
+     * Check texture usage and clear if necessary to prevent errors
+     */
+    checkTextureUsage() {
+        if (ModelLoader.activeTextureCount > this.maxTextureUnits) {
+            console.warn(`Texture count (${ModelLoader.activeTextureCount}) exceeds safe limit (${this.maxTextureUnits}). Clearing texture cache...`);
+            ModelLoader.clearCache();
+            
+            // Force garbage collection with a hint to the browser (not guaranteed)
+            if (window.gc) {
+                window.gc();
+            }
+        }
     }
 
     /**
@@ -115,6 +154,12 @@ export class Renderer {
      * Clean up resources
      */
     destroy() {
+        // Stop texture monitoring
+        if (this.textureCheckTimer) {
+            clearInterval(this.textureCheckTimer);
+            this.textureCheckTimer = null;
+        }
+        
         // Remove event listeners
         window.removeEventListener('resize', this.onWindowResize);
         

@@ -47,16 +47,38 @@ export class Explosion {
         
         const position = new THREE.Vector3(x, y, z);
         
-        // Create new renderer since we're reusing this explosion object
+        // Clean up existing renderer but don't create a new one if it exists
         if (this.renderer) {
-            this.renderer.dispose();
+            // Instead of disposing, reuse the renderer and update its position
+            this.renderer.updateTransform(position);
+            
+            // Make models visible again
+            if (this.renderer.model) {
+                this.renderer.model.visible = true;
+            }
+            
+            // Reset explosion light
+            if (this.renderer.explosionLight) {
+                this.renderer.explosionLight.visible = true;
+                this.renderer.explosionLight.position.copy(position);
+            }
+            
+            // Reset animation/lifetime
+            if (this.renderer.resetExplosion) {
+                this.renderer.resetExplosion(size);
+            } else {
+                // If no reset method exists, create a new renderer
+                this.renderer.dispose();
+                this.renderer = new ExplosionRenderer(scene, position, size);
+            }
+        } else {
+            // Create a new renderer if one doesn't exist
+            this.renderer = new ExplosionRenderer(scene, position, size);
         }
         
         this.position = position.clone();
         this.size = size;
         this.isActive = true;
-        
-        this.renderer = new ExplosionRenderer(scene, position, size);
         
         return true;
     }
@@ -74,9 +96,19 @@ export class Explosion {
         // Update through renderer
         const isStillActive = this.renderer.update(deltaTime);
         
-        // If explosion has finished, mark as inactive
+        // If explosion has finished, mark as inactive and hide visuals
         if (!isStillActive) {
             this.isActive = false;
+            
+            // Hide the explosion model when inactive
+            if (this.renderer && this.renderer.model) {
+                this.renderer.model.visible = false;
+            }
+            
+            // Hide any explosion lights
+            if (this.renderer && this.renderer.explosionLight) {
+                this.renderer.explosionLight.visible = false;
+            }
         }
         
         return this.isActive;

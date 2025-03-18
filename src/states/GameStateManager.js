@@ -1,6 +1,6 @@
 // Removed GameState enum (now imported from GameStore)
 import { GameState, Store, ActionTypes } from '../utilities/GameStore.js';
-import { Events } from '../utilities/EventSystem.js';
+import { Events } from './EventSystem.js';
 
 // GameStateManager class to handle state transitions and management
 export class GameStateManager {

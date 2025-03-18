@@ -2,13 +2,14 @@ import { THREE } from '../utilities/ThreeImports.js';
 import { GameConfig } from '../config/game.config.js';
 import { enhanceMaterial } from '../utilities/Utils.js';
 import { Explosion } from './Explosion.js';
+import { Bullet } from './Bullet.js';
 import { BulletManager } from './BulletManager.js';
 import { UIManager } from '../states/UIManager.js';
-import { Events } from '../utilities/EventSystem.js';
-import { Store, ActionTypes } from '../utilities/GameStore.js';
-import { EventTypes } from '../utilities/EventTypes.js';
-import { Collisions } from '../utilities/CollisionManager.js';
-import { CollisionTypes } from '../utilities/CollisionSystem.js';
+import { Events } from '../states/EventSystem.js';
+import { Store, GameState, ActionTypes } from '../utilities/GameStore.js';
+import { EventTypes } from '../states/EventTypes.js';
+import { Collisions } from '../states/CollisionManager.js';
+import { CollisionTypes } from '../states/CollisionSystem.js';
 import { PlayerRenderer } from './renderers/PlayerRenderer.js';
 
 /**

@@ -1,15 +1,20 @@
 import { THREE } from '../../utilities/ThreeImports.js';
 import { GameConfig } from '../../config/game.config.js';
-import { EntityRenderer } from '../../utilities/EntityRenderer.js';
+import { EntityRenderer } from './EntityRenderer.js';
 
 /**
  * Renderer for the player ship
  */
 export class PlayerRenderer extends EntityRenderer {
+    // Add static shared materials and count
+    static sharedMaterials = null;
+    static instanceCount = 0;
+    
     constructor(scene) {
         super(scene);
         this.invulnerabilityEffect = null;
         this.hitSphere = null;
+        PlayerRenderer.instanceCount++;
         this._createModel();
         
         // Create hit sphere if debug is enabled
@@ -33,6 +38,50 @@ export class PlayerRenderer extends EntityRenderer {
             scale: GameConfig.player.model.scale || 1,
             position: new THREE.Vector3(0, 0, 0),
             rotation: new THREE.Euler(0, 0, 0) // Face forward in 3D view
+        }).then(model => {
+            // Reuse shared materials if they exist
+            if (PlayerRenderer.sharedMaterials) {
+                model.traverse((child) => {
+                    if (child.isMesh) {
+                        if (Array.isArray(child.material)) {
+                            // Replace array of materials with shared ones
+                            child.material = child.material.map((mat, index) => {
+                                if (PlayerRenderer.sharedMaterials[index]) {
+                                    return PlayerRenderer.sharedMaterials[index];
+                                }
+                                return mat;
+                            });
+                        } else if (child.material) {
+                            // Use the first shared material for single materials
+                            if (PlayerRenderer.sharedMaterials[0]) {
+                                child.material = PlayerRenderer.sharedMaterials[0];
+                            }
+                        }
+                    }
+                });
+            } else {
+                // Initialize shared materials from this first instance
+                PlayerRenderer.sharedMaterials = [];
+                
+                // Store unique materials in the shared cache
+                model.traverse((child) => {
+                    if (child.isMesh) {
+                        if (Array.isArray(child.material)) {
+                            // Store each material in the array
+                            child.material.forEach((mat) => {
+                                if (!PlayerRenderer.sharedMaterials.includes(mat)) {
+                                    PlayerRenderer.sharedMaterials.push(mat);
+                                }
+                            });
+                        } else if (child.material) {
+                            // Store single material
+                            if (!PlayerRenderer.sharedMaterials.includes(child.material)) {
+                                PlayerRenderer.sharedMaterials.push(child.material);
+                            }
+                        }
+                    }
+                });
+            }
         }).catch(error => {
             throw error;
         });
@@ -183,26 +232,28 @@ export class PlayerRenderer extends EntityRenderer {
             // Remove from scene first
             this.scene.remove(this.model);
             
-            // Dispose of geometries and materials, but don't dispose of cached textures
+            // Decrement instance count
+            PlayerRenderer.instanceCount--;
+            
+            // Only dispose of materials if this is the last instance
+            if (PlayerRenderer.instanceCount === 0) {
+                // Dispose of materials and clear the cache
+                if (PlayerRenderer.sharedMaterials) {
+                    PlayerRenderer.sharedMaterials.forEach(material => {
+                        if (material) material.dispose();
+                    });
+                    PlayerRenderer.sharedMaterials = null;
+                }
+            }
+            
+            // Dispose of geometries only
             this.model.traverse((node) => {
                 if (node.isMesh) {
                     if (node.geometry) {
                         node.geometry.dispose();
                     }
-                    
-                    if (node.material) {
-                        const materials = Array.isArray(node.material) ? node.material : [node.material];
-                        materials.forEach(material => {
-                            // Don't dispose of textures as they are cached
-                            // Just null the references
-                            ['map', 'lightMap', 'bumpMap', 'normalMap', 'specularMap', 'envMap'].forEach(mapType => {
-                                if (material[mapType]) {
-                                    material[mapType] = null;
-                                }
-                            });
-                            material.dispose();
-                        });
-                    }
+                    // Don't dispose materials as they are shared
+                    node.material = null;
                 }
             });
             

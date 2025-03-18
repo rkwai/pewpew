@@ -2,10 +2,10 @@ import { THREE } from '../utilities/ThreeImports.js';
 import { GameConfig } from '../config/game.config.js';
 import { Bullet } from './Bullet.js';
 import { ObjectPool } from '../utilities/ObjectPool.js';
-import { Events } from '../utilities/EventSystem.js';
-import { EventTypes } from '../utilities/EventTypes.js';
-import { Collisions } from '../utilities/CollisionManager.js';
-import { CollisionTypes } from '../utilities/CollisionSystem.js';
+import { Events } from '../states/EventSystem.js';
+import { EventTypes } from '../states/EventTypes.js';
+import { Collisions } from '../states/CollisionManager.js';
+import { CollisionTypes } from '../states/CollisionSystem.js';
 import { BulletRenderer } from './renderers/BulletRenderer.js';
 
 /**

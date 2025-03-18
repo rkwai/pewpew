@@ -1,5 +1,5 @@
-import { THREE } from './ThreeImports.js';
-import { checkCollision } from './Utils.js';
+import { THREE } from '../utilities/ThreeImports.js';
+import { checkCollision } from '../utilities/Utils.js';
 import { Events } from './EventSystem.js';
 import { EventTypes } from './EventTypes.js';
 
@@ -201,12 +201,6 @@ export class CollisionSystem {
                             (posA.z + posB.z) / 2
                         );
                         
-                        console.log('Collision detected:', {
-                            typeA,
-                            typeB,
-                            point: `(${collisionPoint.x.toFixed(2)}, ${collisionPoint.y.toFixed(2)}, ${collisionPoint.z.toFixed(2)})`
-                        });
-                        
                         // Emit collision event
                         this._emitCollision(entityA, entityB, typeA, typeB, collisionPoint);
                     }
@@ -248,58 +242,78 @@ export class CollisionSystem {
         };
         
         // Emit general collision event
-        Events.emit(EventTypes.ENTITY_COLLISION, collisionData);
-        
-        // Emit collision event specific to this collision type
-        Events.emit(`${EventTypes.ENTITY_COLLISION}:${typeA}-${typeB}`, collisionData);
-        
-        // Emit system collision event
         Events.emit(EventTypes.COLLISION_DETECTED, collisionData);
+        
+        // Map collision types to more specific event data
+        // This makes it easier for components to listen for specific collision types
+        switch(collisionData.type) {
+            case 'player-asteroid':
+            case 'asteroid-player':
+                // Map entity references to correct fields
+                const playerAsteroidData = {
+                    player: typeA === CollisionTypes.PLAYER ? entityA : entityB,
+                    asteroid: typeA === CollisionTypes.ASTEROID ? entityA : entityB,
+                    position: point
+                };
+                Events.emit(`${CollisionTypes.PLAYER}-${CollisionTypes.ASTEROID}`, playerAsteroidData);
+                break;
+                
+            case 'bullet-asteroid':
+            case 'asteroid-bullet':
+                // Map entity references to correct fields
+                const bulletAsteroidData = {
+                    bullet: typeA === CollisionTypes.BULLET ? entityA : entityB,
+                    asteroid: typeA === CollisionTypes.ASTEROID ? entityA : entityB,
+                    position: point
+                };
+                Events.emit(`${CollisionTypes.BULLET}-${CollisionTypes.ASTEROID}`, bulletAsteroidData);
+                break;
+                
+            // Add more specific collision type events as needed
+        }
     }
     
     /**
-     * Check if an entity has the required properties for collision detection
+     * Check if an entity has required collision properties
      * @private
-     * @param {Object} entity - Entity to check
-     * @returns {boolean} Whether the entity has valid collision properties
+     * @param {Object} entity - Entity to validate
+     * @returns {boolean} Whether entity has required properties
      */
     _isValidCollider(entity) {
-        // Must have at least one of these position methods/properties
-        const hasPosition = 
-            typeof entity.getHitSpherePosition === 'function' ||
-            typeof entity.getHitSphereWorldPosition === 'function' ||
-            typeof entity.getPosition === 'function' ||
-            entity.position;
-            
-        // Must have at least one of these radius methods/properties
-        const hasRadius = 
-            typeof entity.getHitSphereRadius === 'function' ||
-            entity._hitSphereRadius !== undefined ||
-            entity.hitSphereRadius !== undefined ||
-            entity.radius !== undefined ||
-            (entity.geometry && entity.geometry.boundingSphere);
-            
+        // Must have position getter method or direct position property
+        const hasPosition = typeof entity.getPosition === 'function' || 
+                           typeof entity.getHitSpherePosition === 'function' ||
+                           entity.position;
+                           
+        // Must have radius getter method or direct radius property
+        const hasRadius = typeof entity.getHitSphereRadius === 'function' ||
+                         entity.hitSphereRadius !== undefined ||
+                         entity.radius !== undefined;
+                         
         return hasPosition && hasRadius;
     }
     
     /**
-     * Get position from entity using any available method
+     * Get entity position for collision check
      * @private
      * @param {Object} entity - Entity to get position from
      * @returns {THREE.Vector3} Entity position
      */
     _getEntityPosition(entity) {
+        // Try different methods of getting entity position in order of preference
         if (typeof entity.getHitSpherePosition === 'function') {
             return entity.getHitSpherePosition();
-        } else if (typeof entity.getHitSphereWorldPosition === 'function') {
-            return entity.getHitSphereWorldPosition();
         } else if (typeof entity.getPosition === 'function') {
             return entity.getPosition();
-        } else if (entity.position) {
+        } else if (entity.position && entity.position instanceof THREE.Vector3) {
             return entity.position;
         }
         
-        // Fallback to origin if no position found
-        return new THREE.Vector3();
+        // Fallback to creating a new Vector3 from x, y, z properties
+        return new THREE.Vector3(
+            entity.x || 0,
+            entity.y || 0,
+            entity.z || 0
+        );
     }
 } 

@@ -1,5 +1,5 @@
-import { Events } from '../utilities/EventSystem.js';
-import { EventTypes } from '../utilities/EventTypes.js';
+import { Events } from './EventSystem.js';
+import { EventTypes } from './EventTypes.js';
 
 /**
  * Manages UI elements to separate DOM manipulation from game logic

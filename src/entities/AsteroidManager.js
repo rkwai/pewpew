@@ -3,11 +3,12 @@ import { GameConfig } from '../config/game.config.js';
 import { Asteroid } from './Asteroid.js';
 import { Explosion } from './Explosion.js';
 import { UIManager } from '../states/UIManager.js';
-import { Events } from '../utilities/EventSystem.js';
-import { Store, ActionTypes } from '../utilities/GameStore.js';
-import { EventTypes } from '../utilities/EventTypes.js';
-import { Collisions } from '../utilities/CollisionManager.js';
-import { CollisionTypes } from '../utilities/CollisionSystem.js';
+import { Store, GameState, ActionTypes } from '../utilities/GameStore.js';
+import { Events } from '../states/EventSystem.js';
+import { getRandomInRange } from '../utilities/Utils.js';
+import { EventTypes } from '../states/EventTypes.js';
+import { Collisions } from '../states/CollisionManager.js';
+import { CollisionTypes } from '../states/CollisionSystem.js';
 
 /**
  * Manages all asteroids in the game, including spawning, updating, and collision detection
@@ -191,8 +192,22 @@ export class AsteroidManager {
             // Calculate explosion size from config or use default ratio
             const explosionSizeRatio = GameConfig.asteroid?.explosionSizeRatio || 0.3;
             
-            // Create explosion at asteroid position
-            const explosion = new Explosion(this.scene, impactPoint || position, size * explosionSizeRatio);
+            // Create explosion - check if we have a gameplay reference with explosion pool
+            if (window.gameState && window.gameState.gameplay && typeof window.gameState.gameplay._getExplosion === 'function') {
+                // Use explosion pool if available
+                const explosion = window.gameState.gameplay._getExplosion(
+                    impactPoint || position, 
+                    size * explosionSizeRatio
+                );
+                
+                // Add to active explosions list
+                if (window.gameState.gameplay.explosions) {
+                    window.gameState.gameplay.explosions.push(explosion);
+                }
+            } else {
+                // Fallback to creating a new explosion directly
+                new Explosion(this.scene, impactPoint || position, size * explosionSizeRatio);
+            }
             
             // Unregister from collision system
             Collisions.unregister(asteroid, CollisionTypes.ASTEROID);

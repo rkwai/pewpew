@@ -2,7 +2,7 @@ import { THREE, GLTFLoader } from '../utilities/ThreeImports.js';
 import { GameConfig } from '../config/game.config.js';
 import { random, randomInt, enhanceMaterial, lerp, smoothStep, easeInOut, smoothOscillate, checkCollision } from '../utilities/Utils.js';
 import { Explosion } from './Explosion.js';
-import { CollisionTypes } from '../utilities/CollisionSystem.js';
+import { CollisionTypes } from '../states/CollisionSystem.js';
 import { AsteroidRenderer } from './renderers/AsteroidRenderer.js';
 
 // Remove direct import and use path string instead

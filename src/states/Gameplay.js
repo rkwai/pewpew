@@ -1,18 +1,18 @@
-import { THREE } from '../utilities/ThreeImports.js';
-import { GameConfig } from '../config/game.config.js';
+import { GLTFLoader } from '../utilities/ThreeImports.js';
+import * as THREE from 'three';
 import { Player } from '../entities/Player.js';
 import { AsteroidManager } from '../entities/AsteroidManager.js';
 import { InputHandler } from '../utilities/InputHandler.js';
-import { Explosion } from '../entities/Explosion.js';
-import { GLTFLoader } from '../utilities/ThreeImports.js';
-import { GameStateManager, GameState } from './GameStateManager.js';
-import { UIManager } from './UIManager.js';
-import { Events } from '../utilities/EventSystem.js';
-import { EventTypes } from '../utilities/EventTypes.js';
-import { Collisions } from '../utilities/CollisionManager.js';
-import { CollisionTypes } from '../utilities/CollisionSystem.js';
-import { Renderer } from '../utilities/Renderer.js';
 import { SceneManager } from '../utilities/SceneManager.js';
+import { Explosion } from '../entities/Explosion.js';
+import { UIManager } from './UIManager.js';
+import { Events } from './EventSystem.js';
+import { EventTypes } from './EventTypes.js';
+import { Collisions } from './CollisionManager.js';
+import { CollisionTypes } from './CollisionSystem.js';
+import { Renderer } from '../entities/renderers/Renderer.js';
+import { GameConfig } from '../config/game.config.js';
+import { GameStateManager, GameState } from './GameStateManager.js';
 
 // Use debug setting from config instead of hardcoded value
 // const DEBUG_MODE = false;
@@ -44,14 +44,31 @@ export class Gameplay {
      * Set up collision event handlers
      */
     setupCollisionHandlers() {
-        // Handle player-asteroid collisions
-        this.playerAsteroidHandler = Events.on(`${EventTypes.ENTITY_COLLISION}:${CollisionTypes.PLAYER}-${CollisionTypes.ASTEROID}`, (data) => {
-            this.handlePlayerAsteroidCollision(data);
-        });
+        // Unsubscribe previous handlers if they exist
+        if (this.playerAsteroidHandler) {
+            this.playerAsteroidHandler();
+            this.playerAsteroidHandler = null;
+        }
+        if (this.bulletAsteroidHandler) {
+            this.bulletAsteroidHandler();
+            this.bulletAsteroidHandler = null;
+        }
         
-        // Handle bullet-asteroid collisions
-        this.bulletAsteroidHandler = Events.on(`${EventTypes.ENTITY_COLLISION}:${CollisionTypes.BULLET}-${CollisionTypes.ASTEROID}`, (data) => {
-            this.handleBulletAsteroidCollision(data);
+        // Register for the general collision detected event from the collision system
+        this.collisionDetectedHandler = Events.on(EventTypes.COLLISION_DETECTED, (data) => {
+            console.log('Raw collision detected:', data.typeA, data.typeB);
+            
+            // Handle player-asteroid collision
+            if ((data.typeA === CollisionTypes.PLAYER && data.typeB === CollisionTypes.ASTEROID) ||
+                (data.typeA === CollisionTypes.ASTEROID && data.typeB === CollisionTypes.PLAYER)) {
+                this.handlePlayerAsteroidCollision(data);
+            }
+            
+            // Handle bullet-asteroid collision
+            if ((data.typeA === CollisionTypes.BULLET && data.typeB === CollisionTypes.ASTEROID) ||
+                (data.typeA === CollisionTypes.ASTEROID && data.typeB === CollisionTypes.BULLET)) {
+                this.handleBulletAsteroidCollision(data);
+            }
         });
     }
     
@@ -241,8 +258,8 @@ export class Gameplay {
             // Update asteroids
             this.asteroidManager.update(cappedDelta);
             
-            // Update collision system
-            Collisions.update(cappedDelta);
+            // Update collision system - make sure this runs after all entities have updated their positions
+            Collisions.update();
             
             // Update explosions
             this.updateExplosions(cappedDelta);
@@ -371,6 +388,9 @@ export class Gameplay {
         // Reset UI
         this.uiManager.reset();
         
+        // Reset event handlers
+        this.setupCollisionHandlers();
+        
         // Reset clock
         this.clock.start();
         
@@ -409,12 +429,9 @@ export class Gameplay {
         Collisions.clear();
         
         // Unsubscribe from collision events
-        if (this.playerAsteroidHandler) {
-            this.playerAsteroidHandler();
-        }
-        
-        if (this.bulletAsteroidHandler) {
-            this.bulletAsteroidHandler();
+        if (this.collisionDetectedHandler) {
+            this.collisionDetectedHandler();
+            this.collisionDetectedHandler = null;
         }
         
         // Destroy player
@@ -431,7 +448,7 @@ export class Gameplay {
         
         // Remove all explosions
         this.explosions.forEach(explosion => {
-            explosion.destroy();
+            explosion.isActive = false;
         });
         this.explosions = [];
         
@@ -602,11 +619,147 @@ export class Gameplay {
     }
 
     _updateExplosions(deltaTime) {
-        for (let i = 0; i < this.explosions.length; i++) {
+        // Update and remove completed explosions
+        for (let i = this.explosions.length - 1; i >= 0; i--) {
             const explosion = this.explosions[i];
-            const isActive = explosion && explosion.isActive;
-            if (isActive) {
-                explosion.update(deltaTime);
+            
+            // Skip if already inactive
+            if (!explosion.isActive) {
+                this.explosions.splice(i, 1);
+                continue;
+            }
+            
+            // Update explosion
+            const isActive = explosion.update(deltaTime);
+            
+            // Remove from active list if complete but don't destroy
+            // since we're now pooling explosions
+            if (!isActive) {
+                this.explosions.splice(i, 1);
+                // Already marked as inactive in the update method
+                // and visual elements have been hidden
+            }
+        }
+    }
+
+    /**
+     * Initialize the explosion system and pool
+     * @private
+     */
+    _initExplosionSystem() {
+        // Initialize explosion array
+        this.explosions = [];
+        
+        // Set up explosion pool settings
+        this.explosionPoolSize = 20; // Maximum number of simultaneous explosions
+        this.explosionPool = [];
+        
+        // Pre-create explosion pool
+        for (let i = 0; i < this.explosionPoolSize; i++) {
+            const explosion = new Explosion(this.scene);
+            explosion.isActive = false;
+            this.explosionPool.push(explosion);
+        }
+    }
+
+    /**
+     * Get an explosion from the pool
+     * @param {THREE.Vector3} position - Position for the explosion
+     * @param {number} size - Size of the explosion
+     * @returns {Explosion} The explosion instance
+     * @private
+     */
+    _getExplosion(position, size) {
+        // First, try to find an inactive explosion in the pool
+        for (let i = 0; i < this.explosionPool.length; i++) {
+            if (!this.explosionPool[i].isActive) {
+                const explosion = this.explosionPool[i];
+                explosion.explode(position.x, position.y, position.z, size);
+                explosion.isActive = true;
+                return explosion;
+            }
+        }
+        
+        // If all explosions are active, reuse the oldest one
+        if (this.explosionPool.length > 0) {
+            const oldestExplosion = this.explosionPool.shift();
+            oldestExplosion.explode(position.x, position.y, position.z, size);
+            this.explosionPool.push(oldestExplosion);
+            return oldestExplosion;
+        }
+        
+        // If pool is empty (should never happen), create a new one
+        const newExplosion = new Explosion(this.scene, position, size);
+        this.explosionPool.push(newExplosion);
+        return newExplosion;
+    }
+
+    /**
+     * Set up the game state
+     */
+    setup() {
+        // ... existing setup code ...
+        
+        // Initialize explosion system before other systems
+        this._initExplosionSystem();
+        
+        // ... rest of existing setup code ...
+    }
+
+    /**
+     * Handle bullet-asteroid collisions
+     * @param {Object} data - Collision data
+     * @private
+     */
+    _handleBulletAsteroidCollision(data) {
+        if (!data.bullet || !data.asteroid) return;
+        
+        // Only process if both objects are still valid
+        if (!data.bullet.isDestroyed && !data.asteroid.isDestroyed) {
+            // Get impact position for better explosion placement
+            const impactPoint = data.position || data.asteroid.getPosition();
+            
+            // Calculate explosion size from config
+            const explosionSizeRatio = GameConfig.collision?.bulletAsteroidExplosionRatio || 0.5;
+            const explosionSize = data.asteroid.size * explosionSizeRatio;
+            
+            // Create explosion from pool
+            const explosion = this._getExplosion(impactPoint, explosionSize);
+            this.explosions.push(explosion);
+            
+            // Destroy asteroid through manager
+            this.asteroidManager.destroyAsteroidByEntity(data.asteroid, impactPoint);
+            
+            // Destroy bullet through player
+            this.player.removeBullet(data.bullet);
+        }
+    }
+
+    /**
+     * Update explosions
+     * @param {number} deltaTime - Time since last update in seconds
+     * @private
+     */
+    _updateExplosions(deltaTime) {
+        // Update and remove completed explosions
+        for (let i = this.explosions.length - 1; i >= 0; i--) {
+            const explosion = this.explosions[i];
+            
+            // Skip if already inactive
+            if (!explosion.isActive) {
+                this.explosions.splice(i, 1);
+                continue;
+            }
+            
+            // Update explosion
+            const isActive = explosion.update(deltaTime);
+            
+            // Remove from active list if complete but don't destroy
+            // since we're now pooling explosions
+            if (!isActive) {
+                this.explosions.splice(i, 1);
+                // Already marked as inactive in the update method
+                // and visual elements have been hidden
             }
         }
     }

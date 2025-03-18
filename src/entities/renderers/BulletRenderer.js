@@ -1,6 +1,6 @@
 import { THREE } from '../../utilities/ThreeImports.js';
 import { GameConfig } from '../../config/game.config.js';
-import { EntityRenderer } from '../../utilities/EntityRenderer.js';
+import { EntityRenderer } from './EntityRenderer.js';
 
 /**
  * Renderer for bullet entities

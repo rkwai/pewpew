@@ -1,17 +1,22 @@
 import { THREE } from '../../utilities/ThreeImports.js';
 import { GameConfig } from '../../config/game.config.js';
-import { EntityRenderer } from '../../utilities/EntityRenderer.js';
+import { EntityRenderer } from './EntityRenderer.js';
 import { enhanceMaterial } from '../../utilities/Utils.js';
 
 /**
  * Renderer for asteroid entities
  */
 export class AsteroidRenderer extends EntityRenderer {
+    // Add static material cache for all asteroid instances
+    static sharedMaterials = null;
+    static instanceCount = 0;
+    
     constructor(scene, size = 1, color = null) {
         super(scene);
         this.size = size;
         this.color = color || this._getRandomColor();
         this.hitSphere = null;
+        AsteroidRenderer.instanceCount++;
         this._createModel();
     }
 
@@ -37,6 +42,51 @@ export class AsteroidRenderer extends EntityRenderer {
         }).then(model => {
             // Ensure model is visible
             model.visible = true;
+            
+            // Reuse shared materials if they exist
+            if (AsteroidRenderer.sharedMaterials) {
+                model.traverse((child) => {
+                    if (child.isMesh) {
+                        if (Array.isArray(child.material)) {
+                            // Replace array of materials with shared ones
+                            child.material = child.material.map((mat, index) => {
+                                if (AsteroidRenderer.sharedMaterials[index]) {
+                                    return AsteroidRenderer.sharedMaterials[index];
+                                }
+                                return mat;
+                            });
+                        } else if (child.material) {
+                            // Use the first shared material for single materials
+                            if (AsteroidRenderer.sharedMaterials[0]) {
+                                child.material = AsteroidRenderer.sharedMaterials[0];
+                            }
+                        }
+                    }
+                });
+            } else {
+                // Initialize shared materials from this first instance
+                AsteroidRenderer.sharedMaterials = [];
+                
+                // Store unique materials in the shared cache
+                model.traverse((child) => {
+                    if (child.isMesh) {
+                        if (Array.isArray(child.material)) {
+                            // Store each material in the array
+                            child.material.forEach((mat) => {
+                                if (!AsteroidRenderer.sharedMaterials.includes(mat)) {
+                                    AsteroidRenderer.sharedMaterials.push(mat);
+                                }
+                            });
+                        } else if (child.material) {
+                            // Store single material
+                            if (!AsteroidRenderer.sharedMaterials.includes(child.material)) {
+                                AsteroidRenderer.sharedMaterials.push(child.material);
+                            }
+                        }
+                    }
+                });
+            }
+            
             // Add to scene if not already added
             if (model.parent !== this.scene) {
                 this.scene.add(model);
@@ -212,26 +262,28 @@ export class AsteroidRenderer extends EntityRenderer {
             // Remove from scene first
             this.scene.remove(this.model);
             
-            // Dispose of geometries and materials, but don't dispose of cached textures
+            // Decrement instance count
+            AsteroidRenderer.instanceCount--;
+            
+            // Only dispose of materials if this is the last instance
+            if (AsteroidRenderer.instanceCount === 0) {
+                // Dispose of materials and clear the cache
+                if (AsteroidRenderer.sharedMaterials) {
+                    AsteroidRenderer.sharedMaterials.forEach(material => {
+                        if (material) material.dispose();
+                    });
+                    AsteroidRenderer.sharedMaterials = null;
+                }
+            }
+            
+            // Dispose of geometries only
             this.model.traverse((node) => {
                 if (node.isMesh) {
                     if (node.geometry) {
                         node.geometry.dispose();
                     }
-                    
-                    if (node.material) {
-                        const materials = Array.isArray(node.material) ? node.material : [node.material];
-                        materials.forEach(material => {
-                            // Don't dispose of textures as they are cached
-                            // Just null the references
-                            ['map', 'lightMap', 'bumpMap', 'normalMap', 'specularMap', 'envMap'].forEach(mapType => {
-                                if (material[mapType]) {
-                                    material[mapType] = null;
-                                }
-                            });
-                            material.dispose();
-                        });
-                    }
+                    // Don't dispose materials as they are shared
+                    node.material = null;
                 }
             });
             

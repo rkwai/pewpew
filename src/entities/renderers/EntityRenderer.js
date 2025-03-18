@@ -1,6 +1,6 @@
-import { THREE } from './ThreeImports.js';
-import { GameConfig } from '../config/game.config.js';
-import { ModelLoader } from './ModelLoader.js';
+import { THREE } from '../../utilities/ThreeImports.js';
+import { GameConfig } from '../../config/game.config.js';
+import { ModelLoader } from '../../utilities/ModelLoader.js';
 
 /**
  * Base class for entity rendering
@@ -250,37 +250,7 @@ export class EntityRenderer {
         });
         this.effectMeshes = [];
         
-        // Remove model and clean up materials and geometries
-        if (this.model) {
-            if (this.scene) this.scene.remove(this.model);
-            
-            // Dispose of geometries and materials
-            this.model.traverse((node) => {
-                if (node.isMesh) {
-                    if (node.geometry) node.geometry.dispose();
-                    
-                    if (node.material) {
-                        if (Array.isArray(node.material)) {
-                            node.material.forEach(material => material.dispose());
-                        } else {
-                            node.material.dispose();
-                        }
-                    }
-                }
-            });
-            
-            this.model = null;
-        }
-        
-        // Clear references
-        this.meshes = [];
-        this.materials = [];
-        this.scene = null;
-    }
-
-    updatePosition(position) {
-        if (!this.model || !position) return;
-        
-        this.model.position.copy(position);
+        // Remove the model
+        this.removeModel();
     }
 } 

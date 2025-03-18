@@ -1,6 +1,6 @@
 import { THREE } from '../../utilities/ThreeImports.js';
 import { GameConfig } from '../../config/game.config.js';
-import { EntityRenderer } from '../../utilities/EntityRenderer.js';
+import { EntityRenderer } from './EntityRenderer.js';
 import { GLTFLoader } from '../../utilities/ThreeImports.js';
 
 /**
@@ -11,6 +11,9 @@ export class ExplosionRenderer extends EntityRenderer {
     static modelCache = null;
     static modelLoading = false;
     static modelCallbacks = [];
+    
+    // Static material cache to avoid creating new materials for each explosion
+    static materialCache = new Map();
     
     constructor(scene, position, size = 1) {
         super(scene);
@@ -121,11 +124,18 @@ export class ExplosionRenderer extends EntityRenderer {
         // Position at explosion center
         this.model.position.copy(this.position);
         
-        // Enhance materials with emissive properties
+        // Enhance materials with emissive properties - use cached materials when possible
         this.model.traverse((child) => {
             if (child.isMesh) {
                 if (Array.isArray(child.material)) {
                     child.material = child.material.map(mat => {
+                        // Check if we already have a cached material for this
+                        const cacheKey = `${mat.uuid}_explosion`;
+                        if (ExplosionRenderer.materialCache.has(cacheKey)) {
+                            return ExplosionRenderer.materialCache.get(cacheKey);
+                        }
+                        
+                        // Create a new material
                         const newMat = mat.clone();
                         // Set base color to orange
                         newMat.color = new THREE.Color(0xff6600);
@@ -135,19 +145,31 @@ export class ExplosionRenderer extends EntityRenderer {
                         // Make it transparent for fade out
                         newMat.transparent = true;
                         newMat.opacity = 1.0;
+                        
+                        // Cache the material
+                        ExplosionRenderer.materialCache.set(cacheKey, newMat);
                         return newMat;
                     });
                 } else {
-                    const newMat = child.material.clone();
-                    // Set base color to orange
-                    newMat.color = new THREE.Color(0xff6600);
-                    // Set emissive to bright yellow
-                    newMat.emissive = new THREE.Color(0xffcc00);
-                    newMat.emissiveIntensity = 3.0;
-                    // Make it transparent for fade out
-                    newMat.transparent = true;
-                    newMat.opacity = 1.0;
-                    child.material = newMat;
+                    // Check if we already have a cached material for this
+                    const cacheKey = `${child.material.uuid}_explosion`;
+                    if (ExplosionRenderer.materialCache.has(cacheKey)) {
+                        child.material = ExplosionRenderer.materialCache.get(cacheKey);
+                    } else {
+                        const newMat = child.material.clone();
+                        // Set base color to orange
+                        newMat.color = new THREE.Color(0xff6600);
+                        // Set emissive to bright yellow
+                        newMat.emissive = new THREE.Color(0xffcc00);
+                        newMat.emissiveIntensity = 3.0;
+                        // Make it transparent for fade out
+                        newMat.transparent = true;
+                        newMat.opacity = 1.0;
+                        
+                        // Cache the material
+                        ExplosionRenderer.materialCache.set(cacheKey, newMat);
+                        child.material = newMat;
+                    }
                 }
             }
         });
@@ -272,62 +294,54 @@ export class ExplosionRenderer extends EntityRenderer {
      * Clean up resources
      */
     dispose() {
-        // Clean up animation mixer
-        if (this.animationMixer) {
-            this.animationMixer.stopAllAction();
-            this.animationMixer.uncacheRoot(this.model);
-            this.animationMixer = null;
-        }
-        
-        // Clean up animation actions
-        this.animationActions.forEach(action => action.stop());
-        this.animationActions = [];
-        
-        // Clean up model and materials
-        if (this.model) {
-            this.model.traverse((child) => {
-                if (child.isMesh) {
-                    if (child.geometry) {
-                        child.geometry.dispose();
-                    }
-                    if (Array.isArray(child.material)) {
-                        child.material.forEach(material => {
-                            if (material.map) material.map.dispose();
-                            material.dispose();
-                        });
-                    } else if (child.material) {
-                        if (child.material.map) child.material.map.dispose();
-                        child.material.dispose();
-                    }
-                }
-            });
-            this.scene.remove(this.model);
-            this.model = null;
-        }
-        
-        // Clean up explosion light
+        // Clean up light effect
         if (this.explosionLight) {
             this.scene.remove(this.explosionLight);
             this.explosionLight = null;
         }
         
-        // Call parent class dispose
-        super.dispose();
+        // Clean up animation mixer
+        if (this.animationMixer) {
+            this.animationMixer.stopAllAction();
+            this.animationActions = [];
+            this.animationMixer = null;
+        }
+        
+        // Clean up model
+        if (this.model) {
+            // Remove from scene first
+            this.scene.remove(this.model);
+            
+            // We're only removing references to materials, not disposing them
+            // since they're cached and shared between explosions
+            this.model.traverse((node) => {
+                if (node.isMesh) {
+                    if (node.geometry) {
+                        node.geometry.dispose();
+                    }
+                    // Just null the material references, don't dispose
+                    node.material = null;
+                }
+            });
+            
+            this.model = null;
+        }
+        
+        // Clear references
+        this.scene = null;
     }
 
     /**
      * Static method to preload explosion model
      */
     static preloadModel() {
-        if (ExplosionRenderer.modelCache || ExplosionRenderer.modelLoading) return;
-        
-        // Check that config has the model path
-        if (!GameConfig.explosion?.model?.path) {
-            throw new Error('Explosion model path not specified in GameConfig');
+        // Only load if not already loading or loaded
+        if (ExplosionRenderer.modelCache || ExplosionRenderer.modelLoading) {
+            return;
         }
         
-        const loader = new GLTFLoader();
         ExplosionRenderer.modelLoading = true;
+        const loader = new GLTFLoader();
         
         loader.load(
             GameConfig.explosion.model.path,
@@ -335,19 +349,108 @@ export class ExplosionRenderer extends EntityRenderer {
                 ExplosionRenderer.modelCache = gltf;
                 ExplosionRenderer.modelLoading = false;
                 
-                // Process any callbacks waiting for the model
-                if (ExplosionRenderer.modelCallbacks.length > 0) {
-                    ExplosionRenderer.modelCallbacks.forEach(callback => callback(gltf));
-                    ExplosionRenderer.modelCallbacks = [];
+                // Initialize material cache
+                if (ExplosionRenderer.materialCache.size === 0) {
+                    // Create and cache base materials
+                    const baseMaterial = new THREE.MeshStandardMaterial({
+                        color: new THREE.Color(0xff6600),
+                        emissive: new THREE.Color(0xffcc00),
+                        emissiveIntensity: 3.0,
+                        transparent: true,
+                        opacity: 1.0
+                    });
+                    ExplosionRenderer.materialCache.set('base_explosion', baseMaterial);
                 }
             },
-            (xhr) => {
-            },
+            null,
             (error) => {
-                console.error('Error preloading explosion model:', error);
                 ExplosionRenderer.modelLoading = false;
-                throw new Error(`Failed to preload explosion model: ${error.message}`);
+                console.error('Failed to preload explosion model:', error);
             }
         );
+    }
+
+    // Add static method to clean cache if needed
+    static cleanMaterialCache() {
+        // Only clean the cache if it gets too large
+        if (ExplosionRenderer.materialCache.size > 50) {
+            ExplosionRenderer.materialCache.clear();
+        }
+    }
+
+    /**
+     * Reset the explosion for reuse
+     * @param {number} size - New size for the explosion
+     * @param {THREE.Vector3} position - Optional new position
+     */
+    resetExplosion(size, position = null) {
+        // Reset lifetime
+        this.lifetime = GameConfig.explosion.lifetime || 1.5;
+
+        // Update size
+        if (size !== undefined) {
+            this.size = size;
+            
+            // Scale model
+            if (this.model) {
+                const modelScale = GameConfig.explosion.model.scale * this.size;
+                this.model.scale.set(modelScale, modelScale, modelScale);
+            }
+        }
+        
+        // Update position if provided
+        if (position) {
+            this.position.copy(position);
+            this.updateTransform(position);
+        }
+        
+        // Reset model visibility
+        if (this.model) {
+            this.model.visible = true;
+            
+            // Reset material properties
+            this.model.traverse((child) => {
+                if (child.isMesh) {
+                    const materials = Array.isArray(child.material) ? child.material : [child.material];
+                    materials.forEach(material => {
+                        // Reset opacity
+                        material.opacity = 1.0;
+                        // Reset emissive intensity
+                        material.emissiveIntensity = 3.0;
+                    });
+                }
+            });
+        }
+        
+        // Reset animation mixer
+        if (this.animationMixer) {
+            // Stop all actions
+            this.animationMixer.stopAllAction();
+            
+            // Reset and play animations
+            if (ExplosionRenderer.modelCache && ExplosionRenderer.modelCache.animations) {
+                ExplosionRenderer.modelCache.animations.forEach(animation => {
+                    const action = this.animationMixer.clipAction(animation);
+                    action.reset();
+                    action.setLoop(THREE.LoopOnce);
+                    action.clampWhenFinished = true;
+                    action.play();
+                });
+            }
+        }
+        
+        // Reset explosion light
+        if (this.explosionLight) {
+            const lightDistance = this.size * 50;
+            this.explosionLight.distance = lightDistance;
+            this.explosionLight.intensity = 5;
+            this.explosionLight.visible = true;
+            if (position) {
+                this.explosionLight.position.copy(position);
+            }
+        } else {
+            // Create light if it doesn't exist
+            this._createExplosionLight();
+        }
     }
 } 
