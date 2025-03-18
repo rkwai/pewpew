@@ -8,15 +8,21 @@ import { GLTFLoader } from '../utilities/ThreeImports.js';
 import { GameStateManager, GameState } from './GameStateManager.js';
 import { UIManager } from './UIManager.js';
 import { Events } from '../utilities/EventSystem.js';
+import { EventTypes } from '../utilities/EventTypes.js';
+import { Collisions } from '../utilities/CollisionManager.js';
+import { CollisionTypes } from '../utilities/CollisionSystem.js';
+import { Renderer } from '../utilities/Renderer.js';
+import { SceneManager } from '../utilities/SceneManager.js';
 
-// Debug mode flag - set to false to disable debug features
-const DEBUG_MODE = false;
+// Use debug setting from config instead of hardcoded value
+// const DEBUG_MODE = false;
 
 export class Gameplay {
     constructor() {
+        this.sceneManager = null;
+        this.renderer = null;
         this.scene = null;
         this.camera = null;
-        this.renderer = null;
         this.player = null;
         this.asteroidManager = null;
         this.inputHandler = null;
@@ -24,19 +30,106 @@ export class Gameplay {
         this.isGameOver = false;
         this.isPaused = false;
         this.explosions = []; // Array to track active explosions
-        this.uiManager = new UIManager(); // Create UIManager
+        this.uiManager = null; // Will be created in init()
         this.lastTime = 0; // Initialize lastTime for animation
         this.isDestroyed = false; // Flag to track if gameplay is destroyed
         
+        // Subscribe to collision events
+        this.setupCollisionHandlers();
+        
         this.init();
+    }
+    
+    /**
+     * Set up collision event handlers
+     */
+    setupCollisionHandlers() {
+        // Handle player-asteroid collisions
+        this.playerAsteroidHandler = Events.on(`${EventTypes.ENTITY_COLLISION}:${CollisionTypes.PLAYER}-${CollisionTypes.ASTEROID}`, (data) => {
+            this.handlePlayerAsteroidCollision(data);
+        });
+        
+        // Handle bullet-asteroid collisions
+        this.bulletAsteroidHandler = Events.on(`${EventTypes.ENTITY_COLLISION}:${CollisionTypes.BULLET}-${CollisionTypes.ASTEROID}`, (data) => {
+            this.handleBulletAsteroidCollision(data);
+        });
+    }
+    
+    /**
+     * Handle collision between player and asteroid
+     * @param {Object} data - Collision data
+     */
+    handlePlayerAsteroidCollision(data) {
+        const { entityA, entityB, point } = data;
+        // Determine which entity is the player and which is the asteroid
+        const player = entityA.type === CollisionTypes.PLAYER ? entityA : entityB;
+        const asteroid = entityA.type === CollisionTypes.ASTEROID ? entityA : entityB;
+        
+        // Validate that the asteroid is still active
+        if (!asteroid || asteroid.isDestroyed) {
+            console.warn('Invalid asteroid collision detected with destroyed asteroid');
+            return;
+        }
+        
+        // Calculate damage based on asteroid size
+        const damage = Math.ceil(asteroid.size * 10);
+        
+        // Apply damage to player
+        player.takeDamage(damage, point);
+        
+        // Create explosion at collision point
+        const explosionSize = GameConfig.collision?.playerAsteroidExplosionSize || 1.0;
+        const explosion = new Explosion(this.scene, point, explosionSize);
+        this.explosions.push(explosion);
+        
+        // Remove asteroid
+        this.asteroidManager.destroyAsteroidByEntity(asteroid);
+    }
+    
+    /**
+     * Handle collision between bullet and asteroid
+     * @param {Object} data - Collision data
+     */
+    handleBulletAsteroidCollision(data) {
+        const { entityA, entityB, point } = data;
+        // Determine which entity is the bullet and which is the asteroid
+        const bullet = entityA.type === CollisionTypes.BULLET ? entityA : entityB;
+        const asteroid = entityA.type === CollisionTypes.ASTEROID ? entityA : entityB;
+        
+        // Skip if either entity is already being destroyed
+        if (!asteroid || !bullet || !bullet.isActive || asteroid.isDestroyed) {
+            return;
+        }
+        
+        // Calculate score based on asteroid size
+        const scoreValue = Math.ceil(asteroid.size * 100);
+        
+        // Increment score
+        this.asteroidManager.incrementScore(scoreValue);
+        
+        // Create explosion at collision point
+        const explosionSizeRatio = GameConfig.collision?.bulletAsteroidExplosionRatio || 0.5;
+        const explosion = new Explosion(this.scene, point, asteroid.size * explosionSizeRatio);
+        this.explosions.push(explosion);
+        
+        // Let the bullet manager handle the bullet cleanup
+        if (this.player && this.player.bulletManager) {
+            this.player.bulletManager.removeBullet(bullet);
+        }
     }
     
     init() {
         console.log('Initializing gameplay state');
         
-        // Create scene
-        this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x000020);
+        // Create UI Manager first to handle loading screen
+        this.uiManager = new UIManager();
+        this.uiManager.setLoadingVisible(true, 0); // Show loading at 0%
+        
+        // Initialize scene manager
+        this.sceneManager = new SceneManager();
+        const { scene, camera } = this.sceneManager.initialize();
+        this.scene = scene;
+        this.camera = camera;
         
         // Initialize explosions array if not already done
         if (!this.explosions) {
@@ -46,110 +139,24 @@ export class Gameplay {
         // Set global reference to this game state for explosions to register
         window.gameState = this;
         
+        // Show loading progress
+        this.uiManager.setLoadingVisible(true, 10);
+        
         // Preload explosion model to avoid delays when first explosion occurs
         this.preloadExplosionModel();
         
         // Update game config with actual screen dimensions
         this.updateScreenDimensions();
         
-        // Create camera
-        this.camera = new THREE.PerspectiveCamera(
-            GameConfig.camera.fov,
-            window.innerWidth / window.innerHeight,
-            GameConfig.camera.near,
-            GameConfig.camera.far
-        );
-        this.camera.position.set(
-            GameConfig.camera.position.x,    // Use config values
-            GameConfig.camera.position.y,    
-            GameConfig.camera.position.z     // Moved closer
-        );
+        // Show loading progress
+        this.uiManager.setLoadingVisible(true, 30);
         
-        // Log camera setup for debugging
-        console.log(`Camera set up with FOV: ${GameConfig.camera.fov}, position: (${this.camera.position.x}, ${this.camera.position.y}, ${this.camera.position.z})`);
+        // Initialize renderer
+        this.renderer = new Renderer();
+        this.renderer.initialize(this.scene, this.camera);
         
-        // Create renderer
-        this.renderer = new THREE.WebGLRenderer({ 
-            antialias: true,
-            powerPreference: "high-performance"
-        });
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
-        
-        // Apply shadow settings from config
-        this.renderer.shadowMap.enabled = GameConfig.rendering.shadows.enabled;
-        
-        // Set shadow map type based on config
-        switch (GameConfig.rendering.shadows.type) {
-            case 'Basic':
-                this.renderer.shadowMap.type = THREE.BasicShadowMap;
-                break;
-            case 'PCF':
-                this.renderer.shadowMap.type = THREE.PCFShadowMap;
-                break;
-            case 'PCFSoft':
-                this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-                break;
-            case 'VSM':
-                this.renderer.shadowMap.type = THREE.VSMShadowMap;
-                break;
-        }
-        
-        // Configure shadow map size
-        this.renderer.shadowMap.mapSize = new THREE.Vector2(
-            GameConfig.rendering.shadows.mapSize, 
-            GameConfig.rendering.shadows.mapSize
-        );
-        
-        // Set renderer color management
-        switch (GameConfig.rendering.outputEncoding) {
-            case 'Linear':
-                this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
-                break;
-            case 'sRGB':
-                this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-                break;
-            case 'DisplayP3':
-                this.renderer.outputColorSpace = THREE.DisplayP3ColorSpace;
-                break;
-            default:
-                // Default to sRGB if unrecognized
-                this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-                break;
-        }
-        
-        // Set tone mapping
-        switch (GameConfig.rendering.toneMapping) {
-            case 'Linear':
-                this.renderer.toneMapping = THREE.LinearToneMapping;
-                break;
-            case 'Reinhard':
-                this.renderer.toneMapping = THREE.ReinhardToneMapping;
-                break;
-            case 'Cineon':
-                this.renderer.toneMapping = THREE.CineonToneMapping;
-                break;
-            case 'ACESFilmic':
-                this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-                break;
-        }
-        
-        // Set exposure
-        this.renderer.toneMappingExposure = GameConfig.rendering.toneMappingExposure;
-        
-        document.body.appendChild(this.renderer.domElement);
-        
-        // Set up post-processing if enabled (commented out for now since it requires additional packages)
-        /* 
-        if (GameConfig.rendering.bloom.enabled) {
-            this.setupPostProcessing();
-        }
-        */
-        
-        // Add lights
-        this.addLights();
-        
-        // Add stars background
-        this.createStarfield();
+        // Show loading progress
+        this.uiManager.setLoadingVisible(true, 70);
         
         // Create input handler
         this.inputHandler = new InputHandler();
@@ -164,95 +171,36 @@ export class Gameplay {
         // Set up debug key handlers
         this.setupDebugHandlers();
         
+        // Show loading progress
+        this.uiManager.setLoadingVisible(true, 80);
+        
         // Create player
         this.player = new Player(this.scene);
         
         // Create asteroid manager
         this.asteroidManager = new AsteroidManager(this.scene);
         
+        // Show loading progress
+        this.uiManager.setLoadingVisible(true, 90);
+        
         // Create game state manager
         this.stateManager = new GameStateManager(this);
         
-        // Handle window resize
-        window.addEventListener('resize', this.onWindowResize.bind(this));
+        // Hide loading screen and show HUD
+        this.uiManager.setLoadingVisible(false);
+        this.uiManager.setHUDVisible(true);
         
         // Start game loop with explicit timestamp of 0 for first frame
         this.lastTime = performance.now();
         this.animate(this.lastTime);
     }
     
-    addLights() {
-        // Create ambient light using config values
-        const ambientLight = new THREE.AmbientLight(
-            GameConfig.lighting.ambient.color, 
-            GameConfig.lighting.ambient.intensity
-        );
-        this.scene.add(ambientLight);
-        
-        // Create main directional light using config values
-        const mainLight = new THREE.DirectionalLight(
-            GameConfig.lighting.directional.color, 
-            GameConfig.lighting.directional.intensity
-        );
-        mainLight.position.set(
-            GameConfig.lighting.directional.position.x,
-            GameConfig.lighting.directional.position.y,
-            GameConfig.lighting.directional.position.z
-        );
-        mainLight.castShadow = GameConfig.lighting.directional.castShadow;
-        this.scene.add(mainLight);
-        
-        // Create player area light using config values
-        const playerLight = new THREE.PointLight(
-            GameConfig.lighting.playerLight.color,
-            GameConfig.lighting.playerLight.intensity,
-            GameConfig.lighting.playerLight.distance
-        );
-        playerLight.position.set(
-            GameConfig.lighting.playerLight.position.x,
-            GameConfig.lighting.playerLight.position.y,
-            GameConfig.lighting.playerLight.position.z
-        );
-        playerLight.castShadow = GameConfig.lighting.playerLight.castShadow;
-        this.scene.add(playerLight);
-        
-        // Create backlight using config values
-        const backLight = new THREE.PointLight(
-            GameConfig.lighting.backLight.color,
-            GameConfig.lighting.backLight.intensity,
-            GameConfig.lighting.backLight.distance
-        );
-        backLight.position.set(
-            GameConfig.lighting.backLight.position.x,
-            GameConfig.lighting.backLight.position.y,
-            GameConfig.lighting.backLight.position.z
-        );
-        backLight.castShadow = GameConfig.lighting.backLight.castShadow;
-        this.scene.add(backLight);
-    }
-    
-    createStarfield() {
-        const starCount = 1000;
-        const starGeometry = new THREE.BufferGeometry();
-        const starPositions = new Float32Array(starCount * 3);
-        
-        // Create a wider distribution along the X-axis for side-scrolling
-        for (let i = 0; i < starCount; i++) {
-            starPositions[i * 3] = (Math.random() - 0.5) * 4000; // Wide X distribution
-            starPositions[i * 3 + 1] = (Math.random() - 0.5) * 2000; // Y distribution
-            starPositions[i * 3 + 2] = (Math.random() - 0.5) * 1000; // Z distribution (depth)
-        }
-        
-        starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-        
-        const starMaterial = new THREE.PointsMaterial({
-            color: 0xffffff,
-            size: 2,
-            sizeAttenuation: true
-        });
-        
-        this.starfield = new THREE.Points(starGeometry, starMaterial);
-        this.scene.add(this.starfield);
+    /**
+     * Update screen dimensions in the game config
+     */
+    updateScreenDimensions() {
+        GameConfig.screen.width = window.innerWidth;
+        GameConfig.screen.height = window.innerHeight;
     }
     
     /**
@@ -273,33 +221,42 @@ export class Gameplay {
         // Update the game state
         if (!this.isPaused && !this.isGameOver) {
             // Update player
-            this.player.update(cappedDelta, this.inputHandler);
+            this.player.update(cappedDelta, this.inputHandler.keys);
             
-            // Update asteroids and check for collisions
-            this.asteroidManager.update(cappedDelta, this.player);
+            // Update asteroids
+            this.asteroidManager.update(cappedDelta);
+            
+            // Update collision system
+            Collisions.update(cappedDelta);
             
             // Update explosions
             this.updateExplosions(cappedDelta);
             
             // Update starfield (scrolling effect)
-            this.updateStarfield(cappedDelta);
+            this.sceneManager.updateStarfield(cappedDelta);
             
             // Check if player is still alive
             if (this.player.getHealth() <= 0) {
                 this.gameOver();
             }
-            
-            // Perform resource cleanup every frame to prevent memory leaks
-            this.player.cleanupResources();
-            this.asteroidManager.cleanupResources();
         }
         
         // Render the scene
-        this.renderer.render(this.scene, this.camera);
+        this.renderer.render();
+        
+        // Debug rendering - log every 60 frames
+        if (this._frameCounter % 60 === 0) {
+            // Log player position in world space for debugging
+            if (this.player && this.player._model) {
+                console.log(`Frame ${this._frameCounter}: Rendering scene with player at (${this.player._model.position.x.toFixed(1)}, ${this.player._model.position.y.toFixed(1)}, ${this.player._model.position.z.toFixed(1)}), visible: ${this.player._model.visible}`);
+            } else {
+                console.log(`Frame ${this._frameCounter}: Rendering scene - player model not available`);
+            }
+        }
         
         // Request the next animation frame if not destroyed
         if (!this.isDestroyed) {
-            this.animationFrameId = requestAnimationFrame(this.animate.bind(this));
+            requestAnimationFrame(this.animate.bind(this));
         }
     }
     
@@ -312,31 +269,6 @@ export class Gameplay {
             const isActive = this.explosions[i].update(deltaTime);
             if (!isActive) {
                 this.explosions.splice(i, 1);
-            }
-        }
-    }
-    
-    /**
-     * Update starfield position for scrolling effect
-     * @param {number} deltaTime - Time delta in seconds
-     */
-    updateStarfield(deltaTime) {
-        if (this.starfield) {
-            // Move stars from right to left (negative X direction)
-            const starSpeed = GameConfig.starfield?.speed || 50; // Default speed: 50 units per second
-            this.starfield.position.x -= starSpeed * deltaTime;
-            
-            // Log starfield position occasionally for debugging
-            if (Math.random() < 0.01) {
-                console.log(`Starfield at x: ${this.starfield.position.x.toFixed(2)}`);
-            }
-            
-            // Reset stars position when they've scrolled far enough
-            // This creates an "infinite" scrolling effect
-            const resetDistance = GameConfig.starfield?.resetDistance || -1000;
-            if (this.starfield.position.x < resetDistance) {
-                this.starfield.position.x = 0;
-                console.log('Starfield position reset to 0');
             }
         }
     }
@@ -366,29 +298,26 @@ export class Gameplay {
         
         // Make sure we have a player and asteroid manager before accessing them
         if (!this.player || !this.asteroidManager) {
-            console.error("Missing player or asteroidManager in gameOver()");
-            return;
+            throw new Error("Missing player or asteroidManager in gameOver()");
         }
         
         // Create a final explosion for the player ship
-        try {
-            const playerPosition = this.player.getPosition();
-            // Create a large explosion at the player's position
-            const explosionSize = this.player.getHitSphereRadius() * 2;
-            new Explosion(this.scene, playerPosition, explosionSize);
-            
-            // Hide the player model
-            if (this.player.model) {
-                this.player.model.visible = false;
-            }
-            if (this.player.tempMesh) {
-                this.player.tempMesh.visible = false;
-            }
-            if (this.player.hitSphere) {
-                this.player.hitSphere.visible = false;
-            }
-        } catch (error) {
-            console.error("Error creating final player explosion:", error);
+        const playerPosition = this.player.getPosition();
+        // Get explosion size multiplier from config or use default
+        const explosionSizeMultiplier = GameConfig.collision?.playerDeathExplosionMultiplier || 2;
+        // Create a large explosion at the player's position
+        const explosionSize = this.player.getHitSphereRadius() * explosionSizeMultiplier;
+        new Explosion(this.scene, playerPosition, explosionSize);
+        
+        // Hide the player model
+        if (this.player.model) {
+            this.player.model.visible = false;
+        }
+        if (this.player.tempMesh) {
+            this.player.tempMesh.visible = false;
+        }
+        if (this.player.hitSphere) {
+            this.player.hitSphere.visible = false;
         }
         
         // Use state manager to show game over screen
@@ -404,7 +333,7 @@ export class Gameplay {
             
             this.stateManager.gameOver(score);
         } else {
-            console.error("Missing stateManager in gameOver()");
+            throw new Error("Missing stateManager in gameOver()");
         }
     }
     
@@ -415,6 +344,9 @@ export class Gameplay {
         this.isGameOver = false;
         this.isPaused = false;
         
+        // Reset collision system
+        Collisions.clear();
+        
         // Reset player
         if (this.player) {
             this.player.destroy();
@@ -423,157 +355,107 @@ export class Gameplay {
         
         // Reset asteroids
         if (this.asteroidManager) {
-            this.asteroidManager.reset();
+            this.asteroidManager.destroy();
         }
+        this.asteroidManager = new AsteroidManager(this.scene);
         
-        // Clear all explosions
-        for (let i = this.explosions.length - 1; i >= 0; i--) {
-            if (this.explosions[i].destroy) {
-                this.explosions[i].destroy();
-            }
-        }
+        // Reset explosions
         this.explosions = [];
         
-        // Reset UI using UIManager instead of direct DOM manipulation
-        this.uiManager.resetUI();
+        // Reset UI
+        this.uiManager.reset();
         
-        // Reset and start the clock
-        this.clock = new THREE.Clock(); // Create a fresh clock
+        // Reset clock
         this.clock.start();
         
-        // Emit restart event
-        Events.emit('gameRestart', {});
-        
-        console.log("Game restart completed - new game started, current state - isGameOver:", this.isGameOver);
+        console.log("Game restart completed");
     }
     
+    update(time, deltaTime) {
+        // Setup frame counter if not exists
+        if (this._frameCounter === undefined) {
+            this._frameCounter = 0;
+        }
+        this._frameCounter++;
+        
+        // Skip if the state is destroyed
+        if (this.isDestroyed) {
+            return;
+        }
+    }
+
+    /**
+     * Clean up resources
+     */
     destroy() {
+        console.log("Destroying gameplay state");
+        
+        // Set destroyed flag to stop animation loop
         this.isDestroyed = true;
         
-        // Cancel any pending animation frames
+        // Cancel animation frame if it exists
         if (this.animationFrameId) {
             cancelAnimationFrame(this.animationFrameId);
+            this.animationFrameId = null;
         }
         
-        // Remove event listeners
-        window.removeEventListener('resize', this.onWindowResize);
+        // Clear collision system
+        Collisions.clear();
         
-        // Dispose of all explosions
-        if (this.explosions) {
-            this.explosions.forEach(explosion => {
-                explosion.dispose();
-            });
-            this.explosions = [];
+        // Unsubscribe from collision events
+        if (this.playerAsteroidHandler) {
+            this.playerAsteroidHandler();
         }
         
-        // Call dispose on managers to properly clean up resources
-        if (this.asteroidManager) {
-            this.asteroidManager.dispose();
-            this.asteroidManager = null;
+        if (this.bulletAsteroidHandler) {
+            this.bulletAsteroidHandler();
         }
         
+        // Destroy player
         if (this.player) {
-            this.player.dispose();
+            this.player.destroy();
             this.player = null;
         }
         
-        // Clean up input handler
+        // Destroy asteroid manager
+        if (this.asteroidManager) {
+            this.asteroidManager.destroy();
+            this.asteroidManager = null;
+        }
+        
+        // Remove all explosions
+        this.explosions.forEach(explosion => {
+            explosion.destroy();
+        });
+        this.explosions = [];
+        
+        // Destroy UI manager
+        if (this.uiManager) {
+            this.uiManager.destroy();
+            this.uiManager = null;
+        }
+        
+        // Destroy input handler
         if (this.inputHandler) {
-            this.inputHandler.dispose();
+            this.inputHandler.destroy();
             this.inputHandler = null;
         }
         
-        // Clean up scene
-        if (this.scene) {
-            this.clearScene(this.scene);
-            this.scene = null;
+        // Destroy scene manager
+        if (this.sceneManager) {
+            this.sceneManager.destroy();
+            this.sceneManager = null;
         }
         
-        // Clean up renderer
+        // Destroy renderer
         if (this.renderer) {
-            this.renderer.dispose();
-            this.renderer.forceContextLoss();
-            this.renderer.domElement = null;
+            this.renderer.destroy();
             this.renderer = null;
         }
         
-        // Clean up camera
+        // Clear references
+        this.scene = null;
         this.camera = null;
-        
-        console.log("Gameplay state destroyed, all resources cleaned up");
-        
-        // Emit destroy event
-        Events.emit('gameplayDestroyed', {});
-        
-        // Clear game state reference
-        window.gameState = null;
-    }
-    
-    // New method to update screen dimensions and related values
-    updateScreenDimensions() {
-        // Update screen dimensions
-        if (GameConfig.screen) {
-            GameConfig.screen.width = window.innerWidth;
-            GameConfig.screen.height = window.innerHeight;
-            console.log(`Screen dimensions updated: ${GameConfig.screen.width}x${GameConfig.screen.height}`);
-        }
-        
-        // Log the current boundaries for debugging
-        if (GameConfig.player && GameConfig.player.boundaries) {
-            console.log('Current player boundaries:',
-                'xMin:', GameConfig.player.boundaries.xMin,
-                'xMax:', GameConfig.player.boundaries.xMax,
-                'yMin:', GameConfig.player.boundaries.yMin,
-                'yMax:', GameConfig.player.boundaries.yMax
-            );
-        }
-        
-        // Only create default position if it doesn't exist
-        if (GameConfig.player && !GameConfig.player.defaultPosition) {
-            GameConfig.player.defaultPosition = {
-                x: -300,
-                y: 0,
-                z: 0
-            };
-            console.log('Created default player position:', GameConfig.player.defaultPosition);
-        }
-        
-        // Update asteroid spawn and despawn distances
-        if (!GameConfig.asteroid) {
-            // Create asteroid config if it doesn't exist
-            GameConfig.asteroid = {
-                minSpeed: 100,
-                maxSpeed: 200,
-                minSize: 30,
-                maxSize: 80,
-                minRotationSpeed: 0.01,
-                maxRotationSpeed: 0.05,
-                spawnRate: 2,
-                spawnDistance: window.innerWidth + 200,
-                spawnDepth: {
-                    min: -100,
-                    max: 100
-                },
-                despawnDistance: -(window.innerWidth + 200)
-            };
-            console.log('Created missing asteroid config');
-        } else {
-            // Ensure asteroid spawn depth property exists
-            if (!GameConfig.asteroid.spawnDepth) {
-                GameConfig.asteroid.spawnDepth = {
-                    min: -100,
-                    max: 100
-                };
-                console.log('Created missing spawnDepth property');
-            }
-            
-            // Update distances
-            GameConfig.asteroid.spawnDistance = window.innerWidth + 200;
-            GameConfig.asteroid.despawnDistance = -(window.innerWidth + 200);
-        }
-        
-        console.log('Updated game dimensions based on screen size:', 
-            { width: window.innerWidth, height: window.innerHeight });
     }
     
     // Show debug features and keyboard shortcuts
@@ -617,20 +499,20 @@ export class Gameplay {
                     // Use getAsteroids() method instead of directly accessing the asteroids property
                     const asteroids = this.asteroidManager.getAsteroids();
                     asteroids.forEach(asteroid => {
-                        if (!asteroid.hitSphere) {
-                            asteroid.createHitSphere();
+                        if (asteroid.renderer) {
+                            // Access hit sphere through the renderer
+                            if (!asteroid.renderer.hitSphere) {
+                                asteroid.renderer.createHitSphere();
+                            }
+                            
+                            // Set visibility through the renderer
+                            asteroid.renderer.setHitSphereVisible(GameConfig.asteroid.debug.showHitSpheres);
+                            
+                            // Reset color
+                            if (asteroid.renderer.hitSphere) {
+                                asteroid.renderer.hitSphere.material.color.set(0x00ff00);
+                            }
                         }
-                        // Use asteroid setHitSphereVisible method instead of direct property access
-                        if (asteroid.setHitSphereVisible) {
-                            asteroid.setHitSphereVisible(GameConfig.asteroid.debug.showHitSpheres);
-                        } else {
-                            // Fallback for asteroids without the setter method
-                            asteroid.hitSphereVisible = GameConfig.asteroid.debug.showHitSpheres;
-                            asteroid.hitSphere.material.opacity = GameConfig.asteroid.debug.showHitSpheres ? 0.3 : 0;
-                            asteroid.hitSphere.material.wireframe = GameConfig.asteroid.debug.showHitSpheres;
-                        }
-                        // Reset color
-                        asteroid.hitSphere.material.color.set(0x00ff00);
                     });
                 }
                 

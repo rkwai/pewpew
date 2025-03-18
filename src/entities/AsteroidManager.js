@@ -1,12 +1,13 @@
 import { THREE } from '../utilities/ThreeImports.js';
 import { GameConfig } from '../config/game.config.js';
 import { Asteroid } from './Asteroid.js';
-import { checkCollision } from '../utilities/Utils.js';
 import { Explosion } from './Explosion.js';
 import { UIManager } from '../states/UIManager.js';
 import { Events } from '../utilities/EventSystem.js';
-import { ObjectPool } from '../utilities/ObjectPool.js';
 import { Store, ActionTypes } from '../utilities/GameStore.js';
+import { EventTypes } from '../utilities/EventTypes.js';
+import { Collisions } from '../utilities/CollisionManager.js';
+import { CollisionTypes } from '../utilities/CollisionSystem.js';
 
 /**
  * Manages all asteroids in the game, including spawning, updating, and collision detection
@@ -21,33 +22,13 @@ export class AsteroidManager {
         this._asteroids = [];
         this._spawnTimer = 0;
         this._score = 0;
+        
         // Use default spawn rate if config is missing
         this._spawnRate = (GameConfig.asteroid && GameConfig.asteroid.spawnRate) 
             ? GameConfig.asteroid.spawnRate 
             : 2; // Default: 2 per second
             
         this.uiManager = new UIManager();
-        
-        // Create an object pool for asteroids
-        const initialPoolSize = GameConfig.asteroid?.poolSize || 20;
-        const expandAmount = GameConfig.objectPool?.asteroid?.expandAmount || 10;
-        
-        this._asteroidPool = new ObjectPool(
-            // Factory function: creates a new asteroid but doesn't add to scene yet
-            () => new Asteroid(this.scene),
-            // Reset function: resets an asteroid to a new state
-            (asteroid, position) => asteroid.reset(position),
-            // Initial pool size
-            initialPoolSize,
-            // Options
-            {
-                autoExpand: GameConfig.objectPool?.enabled !== false,
-                expandAmount: expandAmount
-            }
-        );
-        
-        // Log pool creation
-        console.log(`Created asteroid pool with ${initialPoolSize} initial objects (expandAmount: ${expandAmount})`);
         
         // Subscribe to store updates
         this.unsubscribe = Events.on('STORE_UPDATED', (data) => {
@@ -82,121 +63,46 @@ export class AsteroidManager {
     /**
      * Update all asteroids
      * @param {number} deltaTime - Time since last update in seconds
-     * @param {Object} player - The player object to check for collisions
      */
-    update(deltaTime, player) {
+    update(deltaTime) {
         // Get game state to see if we should update
         const gameState = Store.getState();
         if (gameState.isPaused || gameState.isGameOver) {
             return;
         }
         
-        // Spawn new asteroids
-        this._spawnTimer += deltaTime;
-        if (this._spawnTimer >= 1.0 / this._spawnRate) {
-            this.spawnAsteroid();
-            this._spawnTimer = 0;
+        // Update spawn timer
+        if (this._spawnRate > 0) {
+            this._spawnTimer += deltaTime;
+            
+            // Spawn new asteroid if timer exceeds spawn interval
+            const spawnInterval = 1 / this._spawnRate;
+            if (this._spawnTimer >= spawnInterval) {
+                this._spawnTimer = 0;
+                console.log('AsteroidManager: Spawning new asteroid, current count:', this._asteroids.length);
+                this.spawnAsteroid();
+            }
         }
         
-        // Update existing asteroids
+        // Update existing asteroids and remove any that go off-screen
         for (let i = this._asteroids.length - 1; i >= 0; i--) {
             const asteroid = this._asteroids[i];
             
-            // Skip if asteroid or its position is undefined (can happen during initialization)
-            if (!asteroid || !asteroid.position) {
-                console.warn('Found asteroid without position property, removing:', asteroid);
-                this.removeAsteroid(i);
+            // Skip destroyed asteroids that weren't properly removed
+            if (!asteroid || asteroid.isDestroyed) {
+                console.warn('Found destroyed asteroid that wasn\'t properly removed. Cleaning up now.');
+                this._asteroids.splice(i, 1);
                 continue;
             }
             
             // Update position
-            asteroid.update(deltaTime);
+            const newPosition = asteroid.update(deltaTime);
             
             // Check if asteroid is out of bounds
-            if (asteroid.position.x < -1000) {
+            if (asteroid.isOutOfBounds()) {
+                console.log('AsteroidManager: Asteroid out of bounds, removing');
                 this.removeAsteroid(i);
-                continue;
             }
-            
-            // Check for collision with player
-            if (player && player._position && !player.isInvulnerable() && checkCollision(asteroid, player)) {
-                // Player hit asteroid
-                const damage = Math.ceil(asteroid.size * 10); // Size-based damage
-                player.takeDamage(damage, asteroid.position);
-                
-                // Remove asteroid
-                this.destroyAsteroid(i);
-                
-                // Log collision
-                console.log(`Player hit by asteroid for ${damage} damage`);
-                
-                // Dispatch collision event to store
-                Store.dispatch({
-                    type: ActionTypes.COLLISION_DETECTED,
-                    payload: { type: 'player-asteroid', damage }
-                });
-                
-                continue;
-            }
-            
-            // Check for collision with player bullets
-            if (player && player.bulletManager) {
-                const bullets = player.bulletManager.getActiveBullets();
-                let bulletHit = false;
-                
-                for (let j = 0; j < bullets.length; j++) {
-                    const bullet = bullets[j];
-                    
-                    // Skip if bullet or bullet.position is undefined
-                    if (!bullet || !bullet.position) continue;
-                    
-                    if (checkCollision(asteroid, bullet)) {
-                        // Bullet hit asteroid
-                        player.bulletManager.removeBullet(bullet);
-                        
-                        // Remove asteroid
-                        this.destroyAsteroid(i);
-                        
-                        // Increment score
-                        const scoreValue = Math.ceil(asteroid.size * 100);
-                        this.incrementScore(scoreValue);
-                        
-                        // Log hit
-                        console.log(`Asteroid destroyed by bullet, score: ${scoreValue}`);
-                        
-                        bulletHit = true;
-                        break;
-                    }
-                }
-                
-                if (bulletHit) continue;
-            }
-        }
-        
-        // Clean up resources that need to be managed each frame
-        this.cleanupResources();
-    }
-    
-    /**
-     * Clean up resources that need to be managed each frame
-     * Called by Gameplay.animate() each frame to handle cleanup tasks
-     */
-    cleanupResources() {
-        // In our refactored code, cleanup is handled directly in the update method
-        // and through object pooling. This method exists to maintain compatibility
-        // with Gameplay.js which expects it to exist.
-        
-        // No additional cleanup needed in our new implementation since:
-        // 1. Destroyed asteroids are immediately returned to the pool in update()
-        // 2. Object references are managed by the store
-        
-        // Update asteroid count in the store if needed
-        const state = Store.getState();
-        if (state.entities.asteroidCount !== this._asteroids.length) {
-            Store.dispatch({
-                type: 'UPDATE_ASTEROID_COUNT',
-                payload: this._asteroids.length
-            });
         }
     }
     
@@ -204,123 +110,202 @@ export class AsteroidManager {
      * Spawn a new asteroid
      */
     spawnAsteroid() {
-        // Get an asteroid from the pool
-        const position = this.getRandomSpawnPosition();
-        const asteroid = this._asteroidPool.get(position);
+        // Get random spawn position
+        const spawnPosition = this.getRandomSpawnPosition();
         
-        if (asteroid) {
-            // Add to active asteroids
-            this._asteroids.push(asteroid);
-            
-            // Dispatch action to store
-            Store.dispatch({
-                type: 'ASTEROID_SPAWNED',
-                payload: { position, id: asteroid.id }
-            });
-            
-            // Update asteroid count in the store
-            const state = Store.getState();
-            if (state.entities.asteroidCount !== this._asteroids.length) {
-                Store.dispatch({
-                    type: 'UPDATE_ASTEROID_COUNT',
-                    payload: this._asteroids.length
-                });
-            }
-        }
+        // Generate random size between min and max
+        const minSize = GameConfig.asteroid?.minSize || 2;
+        const maxSize = GameConfig.asteroid?.maxSize || 6;
+        const size = minSize + Math.random() * (maxSize - minSize);
+        
+        // Calculate velocity based on size (smaller asteroids move faster)
+        const minSpeed = GameConfig.asteroid?.minSpeed || 75;
+        const maxSpeed = GameConfig.asteroid?.maxSpeed || 150;
+        
+        // Calculate final speed - smaller asteroids move faster
+        const sizeSpeedFactor = 1 - ((size - minSize) / (maxSize - minSize)) * 0.5;
+        const speed = (minSpeed + Math.random() * (maxSpeed - minSpeed)) * sizeSpeedFactor;
+        
+        // Create velocity vector (moving from right to left)
+        const velocity = new THREE.Vector3(
+            -speed, // Moving left (negative X)
+            Math.random() * 40 - 20, // Small random Y variation
+            0 // Z-axis locked at 0
+        );
+        
+        console.log('AsteroidManager: Creating asteroid with size:', size, 'at position:', spawnPosition.x, spawnPosition.y, spawnPosition.z);
+        
+        // Create new asteroid
+        const asteroid = new Asteroid(this.scene, {
+            size: size,
+            position: spawnPosition,
+            velocity: velocity
+        });
+        
+        // Add to asteroids array
+        this._asteroids.push(asteroid);
+        
+        // Register with collision system
+        Collisions.register(asteroid, CollisionTypes.ASTEROID);
+        
+        return asteroid;
     }
     
     /**
-     * Remove an asteroid from the game
+     * Remove an asteroid
      * @param {number} index - Index of the asteroid to remove
      */
     removeAsteroid(index) {
         if (index >= 0 && index < this._asteroids.length) {
             const asteroid = this._asteroids[index];
             
-            // Remove from the active list
+            // Skip if asteroid is already destroyed
+            if (!asteroid || asteroid.isDestroyed) {
+                console.warn('Trying to remove an already destroyed asteroid. Cleaning up array only.');
+                this._asteroids.splice(index, 1);
+                return;
+            }
+            
+            // Mark as destroyed for safety
+            asteroid.isDestroyed = true;
+            
+            // Unregister from collision system
+            console.log(`Unregistering asteroid from collision system at index ${index}, position: ${asteroid.position.x.toFixed(1)}, ${asteroid.position.y.toFixed(1)}, ${asteroid.position.z.toFixed(1)}`);
+            Collisions.unregister(asteroid, CollisionTypes.ASTEROID);
+            
+            // Clean up resources
+            asteroid.destroy();
+            
+            // Remove from array
+            this._asteroids.splice(index, 1);
+        }
+    }
+    
+    /**
+     * Destroy an asteroid and create an explosion
+     * @param {number} index - Index of the asteroid to destroy
+     * @param {THREE.Vector3} impactPoint - Optional impact point for explosion
+     */
+    destroyAsteroid(index, impactPoint = null) {
+        if (index >= 0 && index < this._asteroids.length) {
+            const asteroid = this._asteroids[index];
+            const position = asteroid.getPosition();
+            const size = asteroid.size;
+            
+            // Calculate explosion size from config or use default ratio
+            const explosionSizeRatio = GameConfig.asteroid?.explosionSizeRatio || 0.3;
+            
+            // Create explosion at asteroid position
+            const explosion = new Explosion(this.scene, impactPoint || position, {
+                size: size * explosionSizeRatio
+            });
+            
+            // Unregister from collision system
+            Collisions.unregister(asteroid, CollisionTypes.ASTEROID);
+            
+            // Clean up resources
+            asteroid.destroy();
+            
+            // Remove from array
             this._asteroids.splice(index, 1);
             
-            // Return to pool
-            this._asteroidPool.release(asteroid);
+            // Increment score based on asteroid size
+            this.incrementScore(Math.round(size * 10));
             
-            // Update asteroid count in the store
-            Store.dispatch({
-                type: 'UPDATE_ASTEROID_COUNT',
-                payload: this._asteroids.length
+            // Emit event
+            Events.emit(EventTypes.ASTEROID_DESTROYED, {
+                position: position,
+                size: size
             });
         }
     }
     
     /**
-     * Destroy an asteroid (with explosion effect)
-     * @param {number} index - Index of the asteroid to destroy
+     * Destroy an asteroid by entity reference
+     * @param {Asteroid} asteroid - The asteroid to destroy
+     * @param {THREE.Vector3} impactPoint - Optional impact point for explosion
      */
-    destroyAsteroid(index) {
-        if (index >= 0 && index < this._asteroids.length) {
-            const asteroid = this._asteroids[index];
-            
-            // Create explosion
-            const explosion = new Explosion();
-            explosion.explode(
-                asteroid.position.x,
-                asteroid.position.y,
-                asteroid.position.z,
-                asteroid.size
-            );
-            
-            // Dispatch to store
-            Store.dispatch({
-                type: ActionTypes.ASTEROID_DESTROYED,
-                payload: { id: asteroid.id, position: asteroid.position.clone() }
-            });
-            
-            // Remove from scene (this also returns it to the pool)
-            this.removeAsteroid(index);
+    destroyAsteroidByEntity(asteroid, impactPoint = null) {
+        const index = this._asteroids.indexOf(asteroid);
+        if (index !== -1) {
+            this.destroyAsteroid(index, impactPoint);
         }
     }
     
     /**
      * Increment the score
-     * @param {number} value - Amount to add to score
+     * @param {number} value - Value to increment by
      */
     incrementScore(value) {
-        // Use store to update score
-        Store.dispatch({ 
-            type: ActionTypes.SCORE_INCREMENT, 
-            payload: value 
-        });
-        
-        // Update local score for reference
-        this._score += value;
-        
-        // Update UI
-        this.uiManager.updateScoreDisplay(this._score);
+        if (!Store.getState().isGameOver) {
+            this._score += value;
+            
+            // Update UI
+            this.uiManager.updateScoreDisplay(this._score);
+            
+            // Check if score milestone reached
+            this.checkScoreMilestones(value);
+            
+            // Update store
+            Store.dispatch({
+                type: ActionTypes.SCORE_INCREMENT,
+                payload: this._score
+            });
+        }
     }
     
     /**
-     * Reset the asteroid manager, clearing all asteroids
+     * Check if any score milestones have been reached
+     * @param {number} lastIncrementValue - The last score increment value
+     */
+    checkScoreMilestones(lastIncrementValue) {
+        const milestones = GameConfig.scoreMilestones || {};
+        
+        // Increase spawn rate at certain score milestones
+        Object.keys(milestones).forEach(scoreThreshold => {
+            const threshold = parseInt(scoreThreshold);
+            // Check if we just crossed the threshold
+            if (this._score >= threshold && (this._score - lastIncrementValue) < threshold) {
+                const milestone = milestones[scoreThreshold];
+                
+                // Apply spawn rate change if specified
+                if (milestone.spawnRateMultiplier) {
+                    this._spawnRate *= milestone.spawnRateMultiplier;
+                }
+                
+                // Emit event
+                Events.emit(EventTypes.SCORE_MILESTONE_REACHED, {
+                    score: this._score,
+                    milestone: milestone
+                });
+            }
+        });
+    }
+    
+    /**
+     * Reset the asteroid manager
      */
     reset() {
-        // Clear all active asteroids
-        while (this._asteroids.length > 0) {
-            this.removeAsteroid(0);
+        // Remove all asteroids
+        for (let i = this._asteroids.length - 1; i >= 0; i--) {
+            this.removeAsteroid(i);
         }
         
-        // Reset spawn timer and rate
+        // Reset spawn rate
+        this._spawnRate = (GameConfig.asteroid && GameConfig.asteroid.spawnRate) 
+            ? GameConfig.asteroid.spawnRate 
+            : 2;
+            
+        // Reset spawn timer
         this._spawnTimer = 0;
-        this._spawnRate = GameConfig.asteroid?.spawnRate || 2;
-        
-        // Reset score
-        this._score = 0;
-        this.uiManager.updateScoreDisplay(0);
-        
-        // Reset asteroid count in store
-        Store.dispatch({
-            type: 'UPDATE_ASTEROID_COUNT',
-            payload: 0
-        });
-        
-        console.log('Asteroid manager reset');
+    }
+    
+    /**
+     * Get all active asteroids
+     * @returns {Array} Array of active asteroids
+     */
+    getAsteroids() {
+        return this._asteroids;
     }
     
     /**
@@ -328,16 +313,22 @@ export class AsteroidManager {
      * @returns {THREE.Vector3} Random spawn position
      */
     getRandomSpawnPosition() {
-        // Spawn off the right side of the screen
-        const x = 1000;
-        const y = (Math.random() - 0.5) * 400;
-        const z = (Math.random() - 0.5) * 200;
+        // Use config values if available
+        const minSpawnX = GameConfig.asteroid?.minSpawnX || 310;
+        const maxSpawnX = GameConfig.asteroid?.maxSpawnX || 350;
+        const minSpawnY = GameConfig.asteroid?.minSpawnY || -200;
+        const maxSpawnY = GameConfig.asteroid?.maxSpawnY || 200;
+        const spawnZ = GameConfig.screen?.bounds?.z || 0;
         
-        return new THREE.Vector3(x, y, z);
+        // Spawn position just off the right edge of the screen with random Y position
+        const spawnX = minSpawnX + Math.random() * (maxSpawnX - minSpawnX);
+        const spawnY = minSpawnY + Math.random() * (maxSpawnY - minSpawnY);
+        
+        return new THREE.Vector3(spawnX, spawnY, spawnZ);
     }
     
     /**
-     * Get the current score
+     * Get current score
      * @returns {number} Current score
      */
     getScore() {
@@ -345,27 +336,20 @@ export class AsteroidManager {
     }
     
     /**
-     * Clear all resources
+     * Clean up resources
      */
     destroy() {
-        // Unsubscribe from store events
+        // Unsubscribe from store updates
         if (this.unsubscribe) {
             this.unsubscribe();
         }
         
-        // Clear all active asteroids
-        while (this._asteroids.length > 0) {
-            this.removeAsteroid(0);
-        }
-        
-        // Destroy the pool
-        this._asteroidPool.destroy();
+        // Remove all asteroids
+        this.reset();
         
         // Clear references
         this.scene = null;
         this._asteroids = [];
-        this._asteroidPool = null;
-        
-        console.log('Asteroid manager destroyed');
+        this.uiManager = null;
     }
 } 

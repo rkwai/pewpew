@@ -1,308 +1,178 @@
 import { THREE } from '../utilities/ThreeImports.js';
 import { GameConfig } from '../config/game.config.js';
-import { GLTFLoader } from '../utilities/ThreeImports.js';
-import { Explosion } from './Explosion.js';
+import { CollisionTypes } from '../utilities/CollisionSystem.js';
+import { BulletRenderer } from './renderers/BulletRenderer.js';
 
-// Remove direct import and use path string instead
-// import missileModel from '../../../assets/models/missile.glb';
-
+/**
+ * Bullet class representing a projectile fired by the player
+ */
 export class Bullet {
-    constructor(scene, position) {
+    /**
+     * Create a new bullet
+     * @param {THREE.Scene} scene - The scene to add the bullet to
+     * @param {THREE.Vector3} position - Initial position
+     * @param {THREE.Vector3} direction - Direction of travel
+     */
+    constructor(scene, position, direction) {
         this.scene = scene;
-        this.isDestroyed = false; // Track if bullet is destroyed
+        this.position = position.clone();
+        this.type = CollisionTypes.BULLET;
         
-        // Create a bullet container
-        this.mesh = new THREE.Object3D();
+        // Set direction and normalize it
+        this.direction = direction.clone().normalize();
         
-        // Initialize with invisible mesh
-        this.mesh.visible = false;
+        // Calculate velocity
+        const speed = GameConfig.bullet?.speed || 800; // Increased default speed
+        this.velocity = this.direction.clone().multiplyScalar(speed);
         
-        // Add to scene
-        this.scene.add(this.mesh);
+        // Get bullet size from config
+        this.size = GameConfig.bullet?.size || 5;
+        this.radius = GameConfig.bullet?.radius || this.size;
         
-        this.hitSphereRadius = 5;
-        this.hitSphereVisible = GameConfig.bullet?.debug?.showHitSphere || false;
-        this.createHitSphere();
+        // Track lifetime
+        this.age = 0;
+        this.lifespan = GameConfig.bullet?.lifespan || 5; // Increased default lifespan to 5 seconds
+        this.isActive = true;
         
-        // Set initial speed and lifetime properties
-        this.speed = GameConfig.bullet.speed;
-        this.lifeTime = GameConfig.bullet.lifespan;
+        // Create renderer
+        this.renderer = new BulletRenderer(scene, this.size);
+        this.renderer.updateTransform(this.position);
         
-        // Initialize with the position - if provided
-        if (position) {
-            this.initialPosition = position.clone();
-            this.mesh.position.copy(position);
-        } else {
-            // Default position far off-screen if none provided
-            this.initialPosition = new THREE.Vector3(-10000, -10000, -10000);
-            this.mesh.position.copy(this.initialPosition);
-        }
-        
-        // Load missile model
-        this.loadModel();
+        // Lock Z position to config value
+        this.position.z = GameConfig.screen.bounds.z;
     }
     
     /**
-     * Reset bullet for reuse from object pool
-     * @param {THREE.Vector3} position - The position to place the bullet
-     * @returns {Bullet} This bullet instance for chaining
+     * Update the bullet position
+     * @param {number} deltaTime - Time since last update in seconds
+     * @returns {boolean} False if the bullet should be removed
      */
-    reset(position) {
-        this.speed = GameConfig.bullet.speed;
-        this.lifeTime = GameConfig.bullet.lifespan;
-        this.isDestroyed = false;
+    update(deltaTime) {
+        if (!this.isActive) {
+            // Clean up resources when bullet becomes inactive
+            this.destroy();
+            return false;
+        }
+
+        // Increase age
+        this.age += deltaTime;
         
-        // Check if we have a valid position
-        const validPosition = position && 
-            typeof position.x === 'number' && 
-            typeof position.y === 'number' && 
-            typeof position.z === 'number';
-        
-        // Safely clone the position or create a default far off-screen
-        if (validPosition) {
-            this.initialPosition = position.clone();
-        } else {
-            // If invalid position, put it far off-screen and keep it invisible
-            this.initialPosition = new THREE.Vector3(-10000, -10000, -10000);
-            console.warn('Invalid position provided to bullet.reset(), moving off-screen', position);
+        // Check if bullet has exceeded its lifespan
+        if (this.age >= this.lifespan) {
+            this.isActive = false;
+            return false;
         }
         
-        // Safely update position if mesh exists
-        if (this.mesh) {
-            this.mesh.position.copy(this.initialPosition);
-            
-            // Only make the bullet visible if it has a valid position
-            this.mesh.visible = validPosition;
-        } else {
-            // If mesh doesn't exist (destroyed fully), recreate it
-            this.mesh = new THREE.Object3D();
-            this.mesh.position.copy(this.initialPosition);
-            this.mesh.visible = validPosition;
-            this.scene.add(this.mesh);
-            
-            // Recreate hit sphere
-            if (!this.hitSphere) {
-                this.createHitSphere();
-            }
-            
-            // Queue model loading if needed
-            if (!this.model) {
-                this.loadModel();
+        // Move bullet according to velocity
+        this.position.add(this.velocity.clone().multiplyScalar(deltaTime));
+        
+        // Ensure z-position is locked 
+        this.position.z = GameConfig.screen.bounds.z;
+        
+        // Update renderer with new position and state
+        this.renderer.update(this.position, {
+            velocity: this.velocity,
+            deltaTime: deltaTime
+        });
+        
+        // Check if bullet is out of screen bounds
+        const screenBounds = GameConfig.screen?.bounds;
+        if (screenBounds) {
+            // Only check if bullet has gone far enough off the right side of screen
+            const offScreenThreshold = 500; // Much larger threshold
+            if (this.position.x > screenBounds.maxX + offScreenThreshold) {
+                this.isActive = false;
+                return false;
             }
         }
         
-        return this;
+        return true;
     }
     
-    loadModel() {
-        const loader = new GLTFLoader();
-        console.log('Attempting to load missile model from: assets/models/missile.glb');
+    /**
+     * Get the bullet's position
+     * @returns {THREE.Vector3} Current position
+     */
+    getPosition() {
+        return this.position.clone();
+    }
+    
+    /**
+     * Get the bullet's direction
+     * @returns {THREE.Vector3} Current direction
+     */
+    getDirection() {
+        return this.direction.clone();
+    }
+    
+    /**
+     * Get the bullet's hit sphere radius for collision detection
+     * @returns {number} Hit sphere radius
+     */
+    getHitSphereRadius() {
+        return this.radius;
+    }
+    
+    /**
+     * Get the bullet's hit sphere position for collision detection
+     * @returns {THREE.Vector3} Hit sphere position
+     */
+    getHitSpherePosition() {
+        return this.position.clone();
+    }
+    
+    /**
+     * Deactivate the bullet when it hits something
+     */
+    hit() {
+        this.isActive = false;
+    }
+    
+    /**
+     * Check if the bullet is beyond the despawn boundaries
+     * @param {Object} bounds - World boundaries
+     * @returns {boolean} True if bullet should be removed
+     */
+    isOutOfBounds(bounds) {
+        if (!bounds) {
+            // Default bounds
+            bounds = {
+                minX: -1000,
+                maxX: 1000,
+                minY: -1000,
+                maxY: 1000,
+                minZ: -1000,
+                maxZ: 1000
+            };
+        }
         
-        loader.load(
-            'assets/models/missile.glb',
-            (gltf) => {
-                // Check if bullet is destroyed or mesh doesn't exist
-                if (this.isDestroyed || !this.mesh) {
-                    console.warn('Cannot add missile model: bullet is destroyed or mesh container is null');
-                    return;
-                }
-                
-                console.log('Missile model loaded successfully');
-                // Instead of removing the container, add the missile model as a child
-                this.model = gltf.scene;
-                // Set model position to origin of the container
-                this.model.position.set(0, 0, 0);
-                
-                // Scale down the model (adjust if too small/large)
-                const scale = 15.0;
-                this.model.scale.set(scale, scale, scale);
-                
-                // Adjust rotation to face forward direction
-                this.model.rotation.y = Math.PI;  // Facing forward
-                
-                // Add the missile model to the bullet container
-                this.mesh.add(this.model);
-                
-                // Make the missile brighter
-                this.model.traverse((child) => {
-                    if (child.isMesh) {
-                        // Set up emissive properties to make it glow
-                        if (child.material) {
-                            // If it has a material, increase its brightness
-                            if (Array.isArray(child.material)) {
-                                child.material.forEach(mat => {
-                                    if (mat) this.enhanceMaterial(mat);
-                                });
-                            } else if (child.material) {
-                                this.enhanceMaterial(child.material);
-                            }
-                        }
-                    }
-                });
-            },
-            undefined,
-            (error) => {
-                console.error('An error occurred while loading the missile model:', error);
-                // Create a simple placeholder if loading fails and bullet still exists
-                if (this.mesh && !this.isDestroyed && GameConfig.bullet?.debug?.showPlaceholder) {
-                    this.createPlaceholderModel();
-                }
-            }
+        // Check if the bullet is beyond any of the boundaries
+        return (
+            this.position.x < bounds.minX ||
+            this.position.x > bounds.maxX ||
+            this.position.y < bounds.minY ||
+            this.position.y > bounds.maxY ||
+            this.position.z < bounds.minZ ||
+            this.position.z > bounds.maxZ
         );
     }
     
-    // Create a simple placeholder model when the main model fails to load
-    createPlaceholderModel() {
-        const geometry = new THREE.ConeGeometry(5, 20, 8);
-        const material = new THREE.MeshBasicMaterial({
-            color: 0xffff00,
-            emissive: 0xffff00,
-            emissiveIntensity: 1.5
-        });
-        
-        const placeholderMesh = new THREE.Mesh(geometry, material);
-        placeholderMesh.rotation.z = Math.PI / 2; // Rotate to point forward
-        this.mesh.add(placeholderMesh);
-    }
-    
-    // Helper method to enhance material brightness
-    enhanceMaterial(material) {
-        // Preserve original color but make it brighter
-        const brightness = GameConfig.bullet.brightness || 1.5;
-        
-        // Set emissive properties to create a glow effect
-        material.emissive = new THREE.Color(GameConfig.bullet.color);
-        material.emissiveIntensity = brightness;
-        
-        // Increase the material's overall brightness
-        if (material.color) {
-            material.color.multiplyScalar(brightness);
-        }
-    }
-    
-    // Note: createTrail method is removed as requested
-    
-    update(deltaTime) {
-        if (this.isDestroyed) return true; // Skip update if destroyed
-        
-        // Move the bullet container from left to right
-        this.mesh.position.x += this.speed * deltaTime;
-        
-        // Update lifetime
-        this.lifeTime -= deltaTime;
-        
-        // Return true if bullet should be removed
-        return this.lifeTime <= 0;
-    }
-    
     /**
-     * Prepare the bullet for returning to the object pool
-     * Keep meshes/geometries in memory but hide it
+     * Clean up resources
      */
-    prepareForPooling() {
-        // Mark as destroyed but don't destroy geometry
-        this.isDestroyed = true;
-        
-        // Hide instead of removing from scene
-        if (this.mesh) {
-            this.mesh.visible = false;
-        }
-        
-        // Turn off hit sphere visibility
-        if (this.hitSphere) {
-            this.hitSphere.visible = false;
-        }
-    }
-    
     destroy() {
-        if (!this.mesh || this.isDestroyed) return; // Already destroyed
+        this.isActive = false;
         
-        this.isDestroyed = true; // Mark as destroyed immediately
-        
-        // Store position before removing from scene for explosion effect
-        const missilePosition = this.getPosition().clone();
-        
-        // Clean up trail if it exists
-        if (this.trail) {
-            this.scene.remove(this.trail);
-            if (this.trail.geometry) this.trail.geometry.dispose();
-            if (this.trail.material) this.trail.material.dispose();
-            this.trail = null;
+        // Clean up renderer
+        if (this.renderer) {
+            this.renderer.dispose();
+            this.renderer = null;
         }
         
-        // Clean up hit sphere
-        if (this.hitSphere) {
-            this.mesh.remove(this.hitSphere);
-            if (this.hitSphere.geometry) this.hitSphere.geometry.dispose();
-            if (this.hitSphere.material) this.hitSphere.material.dispose();
-            this.hitSphere = null;
-        }
-        
-        // Clean up model resources
-        if (this.model) {
-            this.model.traverse((child) => {
-                if (child.isMesh) {
-                    if (child.geometry) {
-                        child.geometry.dispose();
-                    }
-                    if (Array.isArray(child.material)) {
-                        child.material.forEach(material => {
-                            if (material) material.dispose();
-                        });
-                    } else if (child.material) {
-                        child.material.dispose();
-                    }
-                }
-            });
-            this.mesh.remove(this.model);
-            this.model = null;
-        }
-        
-        // Remove from scene
-        if (this.scene) {
-            this.scene.remove(this.mesh);
-        }
-        this.mesh = null;
-        
-        // Create explosion effect at missile's position only if:
-        // 1. This is a real destruction (not just cleanup at end of game)
-        // 2. The bullet wasn't just created (avoid explosions on load errors)
-        try {
-            if (this.lifeTime < GameConfig.bullet.lifespan - 0.1) { // Only create explosion if bullet has existed for a bit
-                // Smaller explosion for missile
-                const explosionSize = 1.2;
-                // Add slight random variation for visual interest
-                const sizeVariation = 1 + (Math.random() * 0.3 - 0.15); // ±15% variation
-                
-                new Explosion(this.scene, missilePosition, explosionSize * sizeVariation);
-            }
-        } catch (error) {
-            console.error('Failed to create explosion for missile:', error);
-        }
-    }
-    
-    getPosition() {
-        if (!this.mesh || this.isDestroyed) {
-            // If already destroyed, return a default position to avoid errors
-            return new THREE.Vector3(0, 0, 0);
-        }
-        return this.mesh.position.clone();
-    }
-
-    // Create hit sphere for bullet (missile) collision detection
-    createHitSphere() {
-        const hitSphereGeometry = new THREE.SphereGeometry(this.hitSphereRadius, 16, 12);
-        const hitSphereMaterial = new THREE.MeshBasicMaterial({
-            color: 0xffff00, // Yellow color for missile hit sphere
-            transparent: true,
-            opacity: this.hitSphereVisible ? 0.3 : 0,
-            wireframe: this.hitSphereVisible
-        });
-
-        this.hitSphere = new THREE.Mesh(hitSphereGeometry, hitSphereMaterial);
-        // Position at the origin of the bullet container
-        this.hitSphere.position.set(0, 0, 0);
-        this.mesh.add(this.hitSphere);
-        console.log(`Created bullet hit sphere with radius ${this.hitSphereRadius}`);
+        // Clear references
+        this.scene = null;
+        this.position = null;
+        this.direction = null;
+        this.velocity = null;
     }
 } 

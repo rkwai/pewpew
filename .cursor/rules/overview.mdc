@@ -26,4 +26,6 @@ To organize your project, you'll need a clear directory structure. Here's a sugg
 - **build/**: Includes compiled files for deployment (e.g., `index.html`, `game.min.js`).
 
 ## Coding Standards
-Do NOT use fallback code -- throw errors instead
+- Do NOT use fallback code -- throw errors and block execution instead
+- Always analyze and understand the code paths before making changes
+- Stop adding logs unless explicitly asked to

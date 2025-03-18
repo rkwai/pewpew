@@ -1,3 +1,6 @@
+import { Events } from '../utilities/EventSystem.js';
+import { EventTypes } from '../utilities/EventTypes.js';
+
 /**
  * Manages UI elements to separate DOM manipulation from game logic
  */
@@ -8,6 +11,53 @@ export class UIManager {
     constructor() {
         this.elements = {};
         this.initialize();
+        
+        // Subscribe to events
+        this.subscribeToEvents();
+    }
+    
+    /**
+     * Subscribe to game events to update UI
+     */
+    subscribeToEvents() {
+        // Health updates
+        this.healthSubscription = Events.on(EventTypes.UI_HEALTH_CHANGED, data => {
+            console.log("Health data received:", data);
+            this.updateHealthDisplay(data.newHealth);
+        });
+        
+        // Score updates
+        this.scoreSubscription = Events.on(EventTypes.SCORE_CHANGED, data => {
+            this.updateScoreDisplay(data.newScore);
+        });
+        
+        // Game state messages
+        this.messageSubscription = Events.on(EventTypes.UI_MESSAGE_DISPLAYED, data => {
+            this.showMessage(data.message, data.duration);
+        });
+        
+        // Game state changes
+        this.gameStateSubscription = Events.on('STORE_UPDATED', data => {
+            // Handle different game states
+            if (data.action.type === 'GAME_STATE_CHANGE') {
+                if (data.state.gameState === 'game_over') {
+                    this.showGameOver(data.state.score);
+                } else if (data.state.gameState === 'gameplay') {
+                    this.showHUD();
+                }
+            }
+        });
+    }
+    
+    /**
+     * Clean up event subscriptions
+     */
+    destroy() {
+        // Unsubscribe from all events
+        if (this.healthSubscription) this.healthSubscription();
+        if (this.scoreSubscription) this.scoreSubscription();
+        if (this.messageSubscription) this.messageSubscription();
+        if (this.gameStateSubscription) this.gameStateSubscription();
     }
 
     /**
@@ -67,11 +117,23 @@ export class UIManager {
 
     /**
      * Update the health display
-     * @param {number} healthValue - Current health value (percentage)
+     * @param {number} health - Current health value
      */
-    updateHealthDisplay(healthValue) {
-        if (this.elements.health) {
-            this.elements.health.innerText = `Health: ${Math.round(healthValue)}%`;
+    updateHealthDisplay(health) {
+        if (!this.elements.health) return;
+        
+        this.elements.health.textContent = `Health: ${health}`;
+        
+        // Apply visual effects based on health level
+        if (health < 30) {
+            this.elements.health.style.color = 'red';
+            this.elements.health.style.fontWeight = 'bold';
+        } else if (health < 50) {
+            this.elements.health.style.color = 'orange';
+            this.elements.health.style.fontWeight = 'normal';
+        } else {
+            this.elements.health.style.color = 'white';
+            this.elements.health.style.fontWeight = 'normal';
         }
     }
 
@@ -80,9 +142,9 @@ export class UIManager {
      * @param {number} score - Current score value
      */
     updateScoreDisplay(score) {
-        if (this.elements.score) {
-            this.elements.score.innerText = `Score: ${score}`;
-        }
+        if (!this.elements.score) return;
+        
+        this.elements.score.textContent = `Score: ${score}`;
     }
 
     /**
@@ -121,6 +183,13 @@ export class UIManager {
         this.setHUDVisible(true);
         this.hideGameStateMessage();
         this.hideDebugMessage();
+    }
+    
+    /**
+     * Reset method - alias for resetUI to maintain API compatibility
+     */
+    reset() {
+        this.resetUI();
     }
 
     /**
@@ -217,37 +286,48 @@ export class UIManager {
     /**
      * Show a message to the player
      * @param {string} message - Message to display
-     * @param {number} [duration=3000] - How long to show the message (milliseconds)
+     * @param {number} [duration=3000] - Duration in milliseconds to show the message
      */
     showMessage(message, duration = 3000) {
-        let messageElement = document.getElementById('message');
+        if (!this.elements.gameStateMessage) return;
         
-        // Create message element if it doesn't exist
-        if (!messageElement) {
-            messageElement = document.createElement('div');
-            messageElement.id = 'message';
-            messageElement.style.position = 'absolute';
-            messageElement.style.top = '20%';
-            messageElement.style.left = '50%';
-            messageElement.style.transform = 'translate(-50%, -50%)';
-            messageElement.style.backgroundColor = 'rgba(0,0,0,0.7)';
-            messageElement.style.color = 'white';
-            messageElement.style.padding = '10px 20px';
-            messageElement.style.borderRadius = '5px';
-            messageElement.style.fontFamily = 'Arial, sans-serif';
-            messageElement.style.fontSize = '18px';
-            messageElement.style.zIndex = '1000';
-            document.body.appendChild(messageElement);
+        this.elements.gameStateMessage.textContent = message;
+        this.elements.gameStateMessage.style.display = 'block';
+        
+        // Clear any existing timeout
+        if (this._messageTimeout) {
+            clearTimeout(this._messageTimeout);
         }
         
-        // Set message and show
-        messageElement.textContent = message;
-        messageElement.style.display = 'block';
-        
-        // Hide after duration
-        clearTimeout(this._messageTimeout);
+        // Hide message after duration
         this._messageTimeout = setTimeout(() => {
-            messageElement.style.display = 'none';
+            this.elements.gameStateMessage.style.display = 'none';
         }, duration);
+    }
+
+    /**
+     * Show the game over screen
+     * @param {number} finalScore - Final score to display
+     */
+    showGameOver(finalScore) {
+        this.showMessage(`GAME OVER - Score: ${finalScore}`, 5000);
+    }
+
+    /**
+     * Show the HUD
+     */
+    showHUD() {
+        if (!this.elements.hud) return;
+        
+        this.elements.hud.style.display = 'block';
+    }
+
+    /**
+     * Hide the HUD
+     */
+    hideHUD() {
+        if (!this.elements.hud) return;
+        
+        this.elements.hud.style.display = 'none';
     }
 } 

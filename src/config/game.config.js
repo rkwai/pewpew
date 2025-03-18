@@ -1,18 +1,35 @@
 export const GameConfig = {
+    // Debug settings
+    debug: {
+        enabled: false, // Disable debug features
+        showAxes: false,
+        showGrid: false,
+        showBoundaries: false
+    },
+    
     // Screen settings
     screen: {
         width: window.innerWidth,
-        height: window.innerHeight
+        height: window.innerHeight,
+        // Add boundaries for visualization and constraints
+        bounds: {
+            minX: -400,
+            maxX: 400,
+            minY: -250,
+            maxY: 250,
+            // Remove min/max Z to enforce 2D gameplay
+            z: 0 // Fixed z-axis position for all game elements
+        }
     },
     
     // Global rendering settings for vibrant colors
     rendering: {
         // Tone mapping (controls how HDR values are mapped to the displayable range)
         toneMapping: 'ACESFilmic', // Options: 'Linear', 'Reinhard', 'Cineon', 'ACESFilmic'
-        toneMappingExposure: 2, // Higher values = brighter scene (1.0 is neutral)
+        toneMappingExposure: 5, // Higher values = brighter scene (1.0 is neutral)
         
         // Color space handling
-        outputEncoding: 'sRGB', // Options: 'Linear', 'sRGB', 'DisplayP3'
+        outputEncoding: 'sRGB', // Maps to outputColorSpace in THREE.js v150+. Options: 'Linear', 'sRGB', 'DisplayP3'
         
         // Shadow settings
         shadows: {
@@ -25,7 +42,7 @@ export const GameConfig = {
         // Ambient occlusion for more depth
         ambientOcclusion: {
             enabled: true,
-            intensity: 0.5, // 0-1 range
+            intensity: 1, // 0-1 range
             radius: 5.0,
             bias: 0.5
         },
@@ -43,8 +60,8 @@ export const GameConfig = {
     lighting: {
         // Ambient light (affects overall scene brightness and fill light)
         ambient: {
-            color: 0x334455, // Slight blue tint
-            intensity: 0.5
+            color: 0xffffff, // Slight blue tint
+            intensity: 1
         },
         
         // Main directional light (like the sun)
@@ -57,32 +74,6 @@ export const GameConfig = {
                 z: 2
             },
             castShadow: true
-        },
-        
-        // Player spotlight (illuminates player and nearby objects)
-        playerLight: {
-            color: 0x99ccff, // Cooler blue tint
-            intensity: 2.5,
-            distance: 500,
-            position: {
-                x: 200,
-                y: 50,
-                z: 200
-            },
-            castShadow: true
-        },
-        
-        // Backlight for dramatic rim lighting
-        backLight: {
-            color: 0xff6644, // Warm orange/red for contrast with blue
-            intensity: 0.8,
-            distance: 300,
-            position: {
-                x: 100,
-                y: -30,
-                z: -100
-            },
-            castShadow: false
         }
     },
     
@@ -104,10 +95,12 @@ export const GameConfig = {
         hitSphereRadius: 15, // Size of player collision sphere
         hitSphereVisible: false, // Whether to show the hit sphere
         boundaries: {
-            xMin: -250,  // Left limit
-            xMax: 250,  // Right limit
-            yMin: -150,  // Bottom limit
-            yMax: 150    // Top limit
+            xMin: -400,  // Left limit
+            xMax: 400,  // Right limit
+            yMin: -250,  // Bottom limit
+            yMax: 250,   // Top limit
+            zMin: 0,     // Fixed z position
+            zMax: 0      // Fixed z position
         },
         // Debug settings
         debug: {
@@ -115,9 +108,9 @@ export const GameConfig = {
         },
         // Default position at left side of screen
         defaultPosition: {
-            x: -300, // New default X position
+            x: -200, // New default X position
             y: 0,
-            z: 0
+            z: 0     // Fixed z position at 0
         },
         // Ship aesthetics
         aesthetics: {
@@ -154,35 +147,49 @@ export const GameConfig = {
         acceleration: {
             up: 5,
             down: 5,
-            left: 2,
-            right: 2
+            left: 5,
+            right: 5
         },
         damping: 0.95,
-        tiltFactor: 0.001,
+        tiltFactor: 0.1,
         invulnerabilityDuration: 2.0,
         flashFrequency: 10,
-        bulletOffset: { x: 30, y: 0, z: 0 },
+        bulletOffset: { x: 15, y: 0, z: 0 },
+        // Model settings
+        model: {
+            path: 'assets/models/spaceship.glb',
+            scale: 20,
+            rotation: Math.PI
+        },
+        // Ship rotation parameters during movement
+        rotationEffects: {
+            leftRoll: 0.05,       // Roll when moving left
+            rightRoll: -0.05,     // Roll when moving right
+            upPitch: -0.2,       // Pitch when moving up
+            downPitch: 0.2,      // Pitch when moving down
+        },
     },
     
     // Camera settings
     camera: {
-        fov: 40,
+        fov: 75,
         near: 0.1,
         far: 2000,
         position: {
             x: 0,
             y: 0,
-            z: 500
-        }
+            z: 500  // Position camera directly in front of the scene
+        },
+        isOrthographic: true // Use orthographic camera for 2D effect
     },
     
     // Bullet settings
     bullet: {
-        speed: 350, // Reduced from 700 for slower movement
+        speed: 400, // Increased from 250 for faster movement
         size: 5,    // Increased from 5 for better visibility
         color: 0x000000,
-        brightness: 3 , // Controls emissive intensity
-        lifespan: 2, // seconds
+        brightness: 15 , // Controls emissive intensity
+        lifespan: 10, // Increased from 2 to 10 seconds to ensure bullets can reach screen edge
         radius: 5,
         damage: 50,
         
@@ -194,9 +201,25 @@ export const GameConfig = {
             showHitSphere: false,
             logCleanup: false,
             logPoolStats: false,
-            logPositions: true, // Log bullet creation positions
-            showPlaceholder: true // Show placeholder if model fails to load
+            logPositions: false, // Log bullet creation positions
+            showPlaceholder: false // Show placeholder if model fails to load
         },
+        // Model settings
+        model: {
+            path: 'assets/models/missile.glb',
+            scale: 15
+        },
+        direction: {
+            x: 1,  // Bullets move right
+            y: 0,
+            z: 0
+        },
+        // Disable trails that might be causing dots
+        trailEnabled: false,
+        trailLength: 10,
+        // Bullet light pulsing effect parameters
+        pulseSpeed: 10,    // Speed of pulsation
+        pulseAmount: 0.3,  // Amount of pulsation (intensity variation)
     },
     
     // Asteroid settings
@@ -208,10 +231,16 @@ export const GameConfig = {
         minRotationSpeed: 0.1,
         maxRotationSpeed: 0.5,
         spawnRate: 2, // per second
-        spawnDistance: 50,
-        despawnDistance: -100,
-        yRange: 300,
+        spawnDistance: 50, // Spawn distance from right side of screen
+        despawnDistance: -400, // Despawn when past left side of screen
+        // Spawn coordinates for right side of screen
+        spawnZ: 0, // Fixed z coordinate
+        minSpawnX: 400, // Just off-screen to the right
+        maxSpawnX: 450,
+        minSpawnY: -200,
+        maxSpawnY: 200,
         damage: 20, // Damage caused to player
+        explosionSizeRatio: 0.3, // Size of explosion relative to asteroid size
         // Asteroid aesthetics
         aesthetics: {
             // Material enhancement
@@ -245,7 +274,12 @@ export const GameConfig = {
             logCollisions: false,
             logCleanup: false,
             logPoolStats: false
-        }
+        },
+        // Model settings
+        model: {
+            path: 'assets/models/asteroid.glb',
+            scale: 1
+        },
     },
     
     // Object pooling settings
@@ -262,5 +296,44 @@ export const GameConfig = {
             initialSize: 30,   // Initial pool size for bullets
             expandAmount: 15   // How many to add when pool is empty
         }
-    }
+    },
+    
+    // Explosion settings
+    explosion: {
+        // Model settings
+        model: {
+            path: 'assets/models/explosion.glb',
+            scale: 1
+        },
+    },
+    
+    // Add collision settings
+    collision: {
+        playerAsteroidExplosionSize: 1.0,     // Size of explosion when player hits asteroid
+        bulletAsteroidExplosionRatio: 0.5,    // Size of explosion relative to asteroid size when bullet hits asteroid
+        defaultExplosionSize: 1.0,            // Default explosion size for general collisions
+        playerDeathExplosionMultiplier: 2.0,  // Multiplier for explosion size when player dies
+    },
+    
+    // Add starfield settings
+    environment: {
+        starfield: {
+            enabled: true,
+            count: 100,
+            size: 2,
+            radius: 1000,
+            speedX: -100, // Speed of stars moving left
+            depth: 500,    // Depth variation for parallax effect
+            // Add color configuration
+            colors: {
+                opacity: 0.8,
+                rMin: 0.8,
+                rMax: 1.0,
+                gMin: 0.8,
+                gMax: 1.0,
+                bMin: 0.9,
+                bMax: 1.0
+            }
+        }
+    },
 }; 

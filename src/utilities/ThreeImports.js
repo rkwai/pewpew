@@ -3,9 +3,15 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { GameConfig } from '../config/game.config.js';
 
 // Helper function to add axes helper and grid to visualize the 3D space
 export function addDebugHelpers(scene, size = 1000) {
+    // Only add debug helpers if debug mode is enabled
+    if (!GameConfig.debug.enabled) {
+        return null;
+    }
+    
     // Add axes helper
     const axesHelper = new THREE.AxesHelper(size);
     scene.add(axesHelper);

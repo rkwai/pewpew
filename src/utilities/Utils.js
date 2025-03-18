@@ -26,8 +26,8 @@ export function randomInt(min, max) {
  * 3. Three.js objects with position and geometry.boundingSphere
  */
 export function checkCollision(obj1, obj2) {
-    // Check if either object is null or undefined
-    if (!obj1 || !obj2) {
+    // Check if either object is null or undefined or marked as destroyed
+    if (!obj1 || !obj2 || obj1.isDestroyed || obj2.isDestroyed) {
         return false;
     }
     
@@ -82,6 +82,18 @@ export function checkCollision(obj1, obj2) {
     // Invalid object
     else {
         console.warn('Invalid object passed to checkCollision, unable to determine collision properties', obj2);
+        return false;
+    }
+    
+    // Check if positions are valid
+    if (!pos1 || !pos2 || !pos1.distanceTo || !pos2.distanceTo) {
+        console.warn('Invalid positions in checkCollision');
+        return false;
+    }
+    
+    // Check if radii are valid
+    if (radius1 === undefined || radius2 === undefined || isNaN(radius1) || isNaN(radius2)) {
+        console.warn('Invalid radii in checkCollision');
         return false;
     }
     
@@ -198,9 +210,10 @@ export function enhanceMaterial(material, gameConfig) {
         material.color.setHSL(hsl.h, hsl.s, hsl.l);
     }
     
-    // Enhance emissive if present
-    if (material.emissive && settings.globalEmissiveBoost) {
-        material.emissive.multiplyScalar(settings.globalEmissiveBoost);
+    // Remove any emissive properties
+    if (material.emissive) {
+        material.emissive.setRGB(0, 0, 0);
+        material.emissiveIntensity = 0;
     }
     
     return material;
@@ -224,9 +237,11 @@ export function enhanceObjectMaterial(material, gameConfig, aestheticsConfig) {
         Math.min(hsl.l * aesthetics.lightnessMultiplier, 1)  // Increase lightness
     );
 
-    // Add subtle emissive for glow without changing color
-    material.emissive = material.color.clone().multiplyScalar(aesthetics.emissiveMultiplier);
-    material.emissiveIntensity = aesthetics.emissiveIntensity;
+    // Remove any existing emissive properties
+    if (material.emissive) {
+        material.emissive.setRGB(0, 0, 0);
+        material.emissiveIntensity = 0;
+    }
 
     // Enhance reflection properties
     if (material.type.includes('MeshStandard')) {
@@ -236,6 +251,6 @@ export function enhanceObjectMaterial(material, gameConfig, aestheticsConfig) {
         material.shininess = aesthetics.phongMaterial.shininess;
     }
 
-    // Apply global material enhancements (assuming enhanceMaterial is already defined and handles global enhancements)
+    // Apply global material enhancements
     enhanceMaterial(material, gameConfig);
 } 

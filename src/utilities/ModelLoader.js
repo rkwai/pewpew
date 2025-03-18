@@ -16,13 +16,14 @@ export class ModelLoader {
      */
     static loadModel(modelPath, config, onSuccess, onProgress, onError) {
         const loader = new GLTFLoader();
-        console.log(`Attempting to load model from: ${modelPath}`);
-
+        
+        console.log(`ModelLoader: Loading model from: ${modelPath}`);
+        
         return new Promise((resolve, reject) => {
             loader.load(
                 modelPath,
                 (gltf) => {
-                    console.log(`Model loaded successfully: ${modelPath}`);
+                    console.log(`ModelLoader: Model loaded successfully from: ${modelPath}`);
                     
                     // Apply configuration to the model
                     if (config) {
@@ -38,7 +39,7 @@ export class ModelLoader {
                 },
                 (xhr) => {
                     const progress = Math.round((xhr.loaded / xhr.total) * 100);
-                    console.log(`Loading model: ${progress}%`);
+                    console.log(`ModelLoader: Loading ${modelPath} progress: ${progress}%`);
                     
                     // Call progress callback if provided
                     if (onProgress) {
@@ -46,14 +47,14 @@ export class ModelLoader {
                     }
                 },
                 (error) => {
-                    console.error(`An error occurred while loading the model: ${error}`);
+                    const errorMsg = `Failed to load model from path: ${modelPath}`;
+                    console.error(errorMsg, error);
                     
-                    // Call error callback if provided
                     if (onError) {
-                        onError(error);
+                        onError(new Error(errorMsg));
                     }
                     
-                    reject(error);
+                    reject(new Error(errorMsg));
                 }
             );
         });
@@ -102,40 +103,6 @@ export class ModelLoader {
                 }
             });
         }
-    }
-    
-    /**
-     * Create a simple placeholder mesh when a model fails to load
-     * @param {object} config - Configuration for the placeholder
-     * @returns {THREE.Mesh} A placeholder mesh
-     */
-    static createPlaceholderMesh(config) {
-        const size = config.size || { x: 30, y: 10, z: 50 };
-        const geometry = new THREE.BoxGeometry(size.x, size.y, size.z);
-        const material = new THREE.MeshPhongMaterial({
-            color: config.color || 0x3333ff,
-            emissive: config.emissive || 0x444444,
-            emissiveIntensity: config.emissiveIntensity || 0.5,
-            shininess: config.shininess || 70,
-            specular: config.specular || 0xffffff,
-            transparent: true,
-            opacity: config.opacity || 0.5
-        });
-        
-        const mesh = new THREE.Mesh(geometry, material);
-        
-        // Apply position if specified
-        if (config.position) {
-            mesh.position.copy(config.position);
-        }
-        
-        // Apply scale if specified
-        if (config.scale) {
-            const scale = typeof config.scale === 'number' ? config.scale : config.scale;
-            mesh.scale.set(scale, scale, scale);
-        }
-        
-        return mesh;
     }
     
     /**
