@@ -10,10 +10,11 @@ export class Bullet {
     /**
      * Create a new bullet
      * @param {THREE.Scene} scene - The scene to add the bullet to
-     * @param {THREE.Vector3} position - Initial position
-     * @param {THREE.Vector3} direction - Direction of travel
+     * @param {THREE.Vector3} position - The initial position
+     * @param {THREE.Vector3} direction - The direction to travel
+     * @param {BulletRenderer} renderer - The shared bullet renderer
      */
-    constructor(scene, position, direction) {
+    constructor(scene, position, direction, renderer) {
         this.scene = scene;
         this.position = position.clone();
         this.type = CollisionTypes.BULLET;
@@ -34,46 +35,45 @@ export class Bullet {
         this.lifespan = GameConfig.bullet?.lifespan || 5; // Increased default lifespan to 5 seconds
         this.isActive = true;
         
-        // Create renderer
-        this.renderer = new BulletRenderer(scene, this.size);
-        this.renderer.updateTransform(this.position);
+        // Create renderer if it doesn't exist
+        if (!renderer) {
+            this.renderer = new BulletRenderer(this.scene, this.size);
+            this.renderer.updateTransform(this.position);
+        } else {
+            this.renderer = renderer;
+        }
         
         // Lock Z position to config value
         this.position.z = GameConfig.screen.bounds.z;
     }
     
     /**
-     * Update the bullet position
+     * Update the bullet's position
      * @param {number} deltaTime - Time since last update in seconds
      * @returns {boolean} False if the bullet should be removed
      */
     update(deltaTime) {
         if (!this.isActive) {
-            // Clean up resources when bullet becomes inactive
-            this.destroy();
             return false;
         }
 
-        // Increase age
-        this.age += deltaTime;
+        // Update position
+        this.position.addScaledVector(this.velocity, deltaTime);
         
-        // Check if bullet has exceeded its lifespan
-        if (this.age >= this.lifespan) {
-            this.isActive = false;
+        // Update age and check lifetime
+        this.age += deltaTime;
+        if (this.age >= (GameConfig.bullet?.lifetime || 2.0)) {
+            this.hit();
             return false;
         }
         
-        // Move bullet according to velocity
-        this.position.add(this.velocity.clone().multiplyScalar(deltaTime));
+        // Update renderer
+        if (this.renderer) {
+            this.renderer.updateTransform(this.position);
+        }
         
         // Ensure z-position is locked 
         this.position.z = GameConfig.screen.bounds.z;
-        
-        // Update renderer with new position and state
-        this.renderer.update(this.position, {
-            velocity: this.velocity,
-            deltaTime: deltaTime
-        });
         
         // Check if bullet is out of screen bounds
         const screenBounds = GameConfig.screen?.bounds;
@@ -114,21 +114,29 @@ export class Bullet {
     }
     
     /**
-     * Get the bullet's hit sphere position for collision detection
-     * @returns {THREE.Vector3} Hit sphere position
+     * Get the hit sphere for collision detection
+     * @returns {Object} The hit sphere data
      */
-    getHitSpherePosition() {
-        // If position is null, return a default position to prevent errors
-        if (!this.position) {
-            return new THREE.Vector3(0, 0, 0);
-        }
-        return this.position.clone();
+    getHitSphere() {
+        return {
+            position: this.getHitSpherePosition(),
+            radius: GameConfig.bullet?.radius || 1.0
+        };
     }
     
     /**
-     * Deactivate the bullet when it hits something
+     * Get the position for hit sphere calculations
+     * @returns {THREE.Vector3} The position
+     */
+    getHitSpherePosition() {
+        return this.position ? this.position.clone() : new THREE.Vector3();
+    }
+    
+    /**
+     * Handle bullet being hit
      */
     hit() {
+        if (!this.isActive) return;
         this.isActive = false;
     }
     
@@ -163,23 +171,23 @@ export class Bullet {
     
     /**
      * Clean up resources
+     * @param {boolean} [destroyRenderer=true] - Whether to destroy the renderer
      */
-    destroy() {
-        // Store final position for any remaining collision checks
+    destroy(destroyRenderer = true) {
+        // Store final position for collision checks
         const finalPosition = this.position ? this.position.clone() : null;
         
-        // Clean up renderer first
-        if (this.renderer) {
+        // Clean up renderer if needed
+        if (destroyRenderer && this.renderer) {
             this.renderer.dispose();
-            this.renderer = null;
         }
+        this.renderer = null;
         
-        // Clear most references
+        // Clear references but keep position data for remaining collision checks
         this.scene = null;
         this.direction = null;
         this.velocity = null;
-        
-        // Clear position last, but keep the final position available
         this.position = finalPosition;
+        this.isActive = false;
     }
 } 

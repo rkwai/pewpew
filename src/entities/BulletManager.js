@@ -6,6 +6,7 @@ import { Events } from '../utilities/EventSystem.js';
 import { EventTypes } from '../utilities/EventTypes.js';
 import { Collisions } from '../utilities/CollisionManager.js';
 import { CollisionTypes } from '../utilities/CollisionSystem.js';
+import { BulletRenderer } from './renderers/BulletRenderer.js';
 
 /**
  * Manages all bullets in the game
@@ -18,6 +19,12 @@ export class BulletManager {
     constructor(scene) {
         this.scene = scene;
         this._bullets = [];
+        this._bulletPool = [];
+        this._maxPoolSize = GameConfig.bullet?.maxBullets || 100;
+        
+        // Create a single shared renderer for all bullets and initialize it off-screen
+        this._sharedRenderer = new BulletRenderer(this.scene);
+        this._sharedRenderer.updateTransform(new THREE.Vector3(-10000, -10000, GameConfig.screen.bounds.z));
         
         // Subscribe to collision events
         this.collisionUnsubscribe = Events.on(EventTypes.ENTITY_COLLISION, (data) => {
@@ -43,6 +50,9 @@ export class BulletManager {
         // Get the other entity
         const otherEntity = entityA === bullet ? entityB : entityA;
         
+        // Store reference to this for use in callback
+        const self = this;
+        
         // Handle different entity types
         if (otherEntity.type === CollisionTypes.ASTEROID) {
             // Emit bullet hit event before removing the bullet
@@ -54,30 +64,65 @@ export class BulletManager {
             
             // Queue bullet for removal on next frame to ensure collision processing completes
             requestAnimationFrame(() => {
-                this.removeBullet(bullet);
+                self.removeBullet(bullet);
             });
         }
     }
     
     /**
-     * Remove a bullet from the manager
-     * @param {Bullet} bullet - The bullet to remove
+     * Get a bullet from the pool or create a new one
+     * @param {THREE.Vector3} position - Position to spawn the bullet
+     * @param {THREE.Vector3} direction - Direction the bullet should travel
+     * @returns {Bullet} A bullet instance
+     * @private
      */
-    removeBullet(bullet) {
-        // Skip if bullet is already being removed or doesn't exist
+    _getBullet(position, direction) {
+        let bullet;
+        
+        // Try to get a bullet from the pool
+        if (this._bulletPool.length > 0) {
+            bullet = this._bulletPool.pop();
+            
+            // Immediately update position before any other changes
+            bullet.position.copy(position);
+            this._sharedRenderer.updateTransform(bullet.position);
+            
+            // Reset bullet state
+            bullet.direction.copy(direction.clone().normalize());
+            bullet.age = 0;
+            bullet.isActive = true;
+            
+            // Reset velocity
+            const speed = GameConfig.bullet?.speed || 800;
+            bullet.velocity.copy(bullet.direction).multiplyScalar(speed);
+        } else {
+            // Create new bullet if pool is empty
+            bullet = new Bullet(this.scene, position, direction, this._sharedRenderer);
+        }
+        
+        return bullet;
+    }
+    
+    /**
+     * Return a bullet to the pool
+     * @param {Bullet} bullet - The bullet to return to the pool
+     * @private
+     */
+    _returnToPool(bullet) {
         if (!bullet) return;
         
-        const index = this._bullets.indexOf(bullet);
-        if (index !== -1) {
-            // Remove from array first
-            this._bullets.splice(index, 1);
-            
-            // Then unregister from collision system
-            Collisions.unregister(bullet, CollisionTypes.BULLET);
-            
-            // Finally mark as inactive and destroy
-            bullet.hit();
-            bullet.destroy();
+        // Only keep bullets up to max pool size
+        if (this._bulletPool.length < this._maxPoolSize) {
+            bullet.isActive = false;
+            // Reset but don't destroy the bullet
+            bullet.age = 0;
+            // Move far off-screen and ensure it's not rendered
+            bullet.position.set(-10000, -10000, GameConfig.screen.bounds.z);
+            this._sharedRenderer.updateTransform(bullet.position);
+            this._bulletPool.push(bullet);
+        } else {
+            // If pool is full, destroy the bullet but keep the shared renderer
+            bullet.destroy(false); // Pass false to indicate not to destroy renderer
         }
     }
     
@@ -85,18 +130,17 @@ export class BulletManager {
      * Create a new bullet
      * @param {THREE.Vector3} position - Position to spawn the bullet
      * @param {THREE.Vector3} direction - Direction the bullet should travel
-     * @param {Object} options - Additional options
      * @returns {Bullet} The created bullet
      */
-    createBullet(position, direction, options = {}) {
+    createBullet(position, direction) {
         // Check bullet limit
-        if (this._bullets.length >= (GameConfig.bullet.maxBullets || 100)) {
+        if (this._bullets.length >= this._maxPoolSize) {
             console.warn(`Maximum number of bullets reached`);
             return null;
         }
         
-        // Create a new bullet (removed options parameter to match updated Bullet constructor)
-        const bullet = new Bullet(this.scene, position, direction);
+        // Get a bullet (from pool or new)
+        const bullet = this._getBullet(position, direction);
         
         // Add to active bullets
         this._bullets.push(bullet);
@@ -104,7 +148,7 @@ export class BulletManager {
         // Register with collision system
         Collisions.register(bullet, CollisionTypes.BULLET);
         
-        // Emit bullet created event with correct event type
+        // Emit bullet created event
         Events.emit(EventTypes.BULLET_FIRED, {
             bullet: bullet,
             position: position.clone(),
@@ -171,11 +215,42 @@ export class BulletManager {
             this.collisionUnsubscribe();
         }
         
-        // Destroy all bullets and unregister from collision system
-        this.reset();
+        // Destroy all bullets and clear pool
+        [...this._bullets, ...this._bulletPool].forEach(bullet => {
+            if (bullet) {
+                Collisions.unregister(bullet, CollisionTypes.BULLET);
+                bullet.destroy(false); // Pass false to indicate not to destroy renderer
+            }
+        });
         
-        // Clear references
-        this.scene = null;
+        // Clean up the shared renderer
+        if (this._sharedRenderer) {
+            this._sharedRenderer.dispose();
+            this._sharedRenderer = null;
+        }
+        
         this._bullets = [];
+        this._bulletPool = [];
+        this.scene = null;
+    }
+    
+    /**
+     * Remove a bullet from the manager
+     * @param {Bullet} bullet - The bullet to remove
+     */
+    removeBullet(bullet) {
+        if (!bullet) return;
+        
+        const index = this._bullets.indexOf(bullet);
+        if (index !== -1) {
+            // Remove from array
+            this._bullets.splice(index, 1);
+            
+            // Unregister from collision system
+            Collisions.unregister(bullet, CollisionTypes.BULLET);
+            
+            // Return to pool instead of destroying
+            this._returnToPool(bullet);
+        }
     }
 } 
