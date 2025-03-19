@@ -113,8 +113,8 @@ export class AsteroidManager {
         const spawnPosition = this.getRandomSpawnPosition();
         
         // Generate random size between min and max
-        const minSize = GameConfig.asteroid?.minSize || 2;
-        const maxSize = GameConfig.asteroid?.maxSize || 6;
+        const minSize = GameConfig.asteroid?.minSize || 20;
+        const maxSize = GameConfig.asteroid?.maxSize || 70;
         const size = minSize + Math.random() * (maxSize - minSize);
         
         // Calculate velocity based on size (smaller asteroids move faster)
@@ -323,8 +323,8 @@ export class AsteroidManager {
      */
     getRandomSpawnPosition() {
         // Use config values if available
-        const minSpawnX = GameConfig.asteroid?.minSpawnX || 310;
-        const maxSpawnX = GameConfig.asteroid?.maxSpawnX || 350;
+        const minSpawnX = GameConfig.asteroid?.minSpawnX || 400;
+        const maxSpawnX = GameConfig.asteroid?.maxSpawnX || 450;
         const minSpawnY = GameConfig.asteroid?.minSpawnY || -200;
         const maxSpawnY = GameConfig.asteroid?.maxSpawnY || 200;
         const spawnZ = GameConfig.screen?.bounds?.z || 0;

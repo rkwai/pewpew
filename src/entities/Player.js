@@ -329,7 +329,7 @@ export class Player {
         });
         
         // Make invulnerable for a short time
-        this._invulnerableTime = GameConfig.player.invulnerabilityTime || 2;
+        this._invulnerableTime = GameConfig.player.invulnerabilityDuration || 2.0;
         
         // Check if dead
         if (this._health <= 0 && this._isAlive) {
