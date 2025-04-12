@@ -1,5 +1,4 @@
-import { GLTFLoader } from '../utilities/ThreeImports.js';
-import * as THREE from 'three';
+import { GLTFLoader, THREE } from '../utilities/ThreeImports.js';
 import { Player } from '../entities/Player.js';
 import { AsteroidManager } from '../entities/AsteroidManager.js';
 import { InputHandler } from '../utilities/InputHandler.js';
@@ -134,12 +133,14 @@ export class Gameplay {
         // Increment score
         this.asteroidManager.incrementScore(scoreValue);
         
-        // Create explosion at collision point
+        // Create explosion at collision point using the pool
         const explosionSizeRatio = GameConfig.collision?.bulletAsteroidExplosionRatio || 0.5;
         const explosionSize = asteroid.size * explosionSizeRatio;
-        
-        const explosion = new Explosion(this.scene, point, explosionSize);
-        this.explosions.push(explosion);
+        const explosion = this.getExplosion(point, explosionSize);
+        // Ensure the explosion instance is added to the active list if _getExplosion doesn't do it
+        if (explosion && !this.explosions.includes(explosion)) {
+            this.explosions.push(explosion);
+        }
         
         // Let the bullet manager handle the bullet cleanup
         if (this.player && this.player.bulletManager) {
@@ -163,19 +164,22 @@ export class Gameplay {
         this.scene = scene;
         this.camera = camera;
         
+        // Preload explosion model BEFORE initializing the pool
+        Explosion.preloadModel();
+        
         // Initialize explosions array if not already done
         if (!this.explosions) {
             this.explosions = [];
         }
+        
+        // Initialize explosion pool system (moved from constructor)
+        this.initExplosionSystem();
         
         // Set global reference to this game state for explosions to register
         window.gameState = this;
         
         // Show loading progress
         this.uiManager.setLoadingVisible(true, 10);
-        
-        // Preload models
-        Explosion.preloadModel(); // Preload explosion model
         
         // Update game config with actual screen dimensions
         this.updateScreenDimensions();
@@ -261,7 +265,7 @@ export class Gameplay {
             // Update collision system - make sure this runs after all entities have updated their positions
             Collisions.update();
             
-            // Update explosions
+            // Update explosions using the pooling version
             this.updateExplosions(cappedDelta);
             
             // Update starfield (scrolling effect)
@@ -279,20 +283,6 @@ export class Gameplay {
         // Request the next animation frame if not destroyed
         if (!this.isDestroyed) {
             requestAnimationFrame(this.animate.bind(this));
-        }
-    }
-    
-    /**
-     * Update all active explosions
-     * @param {number} deltaTime - Time delta in seconds
-     */
-    updateExplosions(deltaTime) {
-        for (let i = 0; i < this.explosions.length; i++) {
-            const explosion = this.explosions[i];
-            const isActive = explosion && explosion.isActive;
-            if (isActive) {
-                explosion.update(deltaTime);
-            }
         }
     }
     
@@ -446,11 +436,23 @@ export class Gameplay {
             this.asteroidManager = null;
         }
         
-        // Remove all explosions
+        // Destroy active explosions and clear the list
         this.explosions.forEach(explosion => {
-            explosion.isActive = false;
+            if (explosion && typeof explosion.destroy === 'function') {
+                explosion.destroy();
+            }
         });
         this.explosions = [];
+        
+        // Destroy pooled explosions and clear the pool
+        if (this.explosionPool) {
+            this.explosionPool.forEach(explosion => {
+                if (explosion && typeof explosion.destroy === 'function') {
+                    explosion.destroy();
+                }
+            });
+            this.explosionPool = [];
+        }
         
         // Destroy UI manager
         if (this.uiManager) {
@@ -618,8 +620,13 @@ export class Gameplay {
         this.renderer.render(this.scene, this.camera);
     }
 
-    _updateExplosions(deltaTime) {
-        // Update and remove completed explosions
+    // Renamed from _updateExplosions to become the primary method
+    /**
+     * Update explosions (using pooling)
+     * @param {number} deltaTime - Time since last update in seconds
+     */
+    updateExplosions(deltaTime) {
+        // Update and remove completed explosions from the active list
         for (let i = this.explosions.length - 1; i >= 0; i--) {
             const explosion = this.explosions[i];
             
@@ -642,34 +649,14 @@ export class Gameplay {
         }
     }
 
-    /**
-     * Initialize the explosion system and pool
-     * @private
-     */
-    _initExplosionSystem() {
-        // Initialize explosion array
-        this.explosions = [];
-        
-        // Set up explosion pool settings
-        this.explosionPoolSize = 20; // Maximum number of simultaneous explosions
-        this.explosionPool = [];
-        
-        // Pre-create explosion pool
-        for (let i = 0; i < this.explosionPoolSize; i++) {
-            const explosion = new Explosion(this.scene);
-            explosion.isActive = false;
-            this.explosionPool.push(explosion);
-        }
-    }
-
+    // Renamed from _getExplosion
     /**
      * Get an explosion from the pool
      * @param {THREE.Vector3} position - Position for the explosion
      * @param {number} size - Size of the explosion
      * @returns {Explosion} The explosion instance
-     * @private
      */
-    _getExplosion(position, size) {
+    getExplosion(position, size) {
         // First, try to find an inactive explosion in the pool
         for (let i = 0; i < this.explosionPool.length; i++) {
             if (!this.explosionPool[i].isActive) {
@@ -694,6 +681,26 @@ export class Gameplay {
         return newExplosion;
     }
 
+    // Renamed from _initExplosionSystem
+    /**
+     * Initialize the explosion system and pool
+     */
+    initExplosionSystem() {
+        // Initialize explosion array (active instances)
+        this.explosions = [];
+        
+        // Set up explosion pool settings
+        this.explosionPoolSize = 20; // Maximum number of simultaneous explosions
+        this.explosionPool = [];
+        
+        // Pre-create explosion pool
+        for (let i = 0; i < this.explosionPoolSize; i++) {
+            const explosion = new Explosion(this.scene);
+            explosion.isActive = false;
+            this.explosionPool.push(explosion);
+        }
+    }
+
     /**
      * Set up the game state
      */
@@ -701,66 +708,8 @@ export class Gameplay {
         // ... existing setup code ...
         
         // Initialize explosion system before other systems
-        this._initExplosionSystem();
+        this.initExplosionSystem();
         
         // ... rest of existing setup code ...
-    }
-
-    /**
-     * Handle bullet-asteroid collisions
-     * @param {Object} data - Collision data
-     * @private
-     */
-    _handleBulletAsteroidCollision(data) {
-        if (!data.bullet || !data.asteroid) return;
-        
-        // Only process if both objects are still valid
-        if (!data.bullet.isDestroyed && !data.asteroid.isDestroyed) {
-            // Get impact position for better explosion placement
-            const impactPoint = data.position || data.asteroid.getPosition();
-            
-            // Calculate explosion size from config
-            const explosionSizeRatio = GameConfig.collision?.bulletAsteroidExplosionRatio || 0.5;
-            const explosionSize = data.asteroid.size * explosionSizeRatio;
-            
-            // Create explosion from pool
-            const explosion = this._getExplosion(impactPoint, explosionSize);
-            this.explosions.push(explosion);
-            
-            // Destroy asteroid through manager
-            this.asteroidManager.destroyAsteroidByEntity(data.asteroid, impactPoint);
-            
-            // Destroy bullet through player
-            this.player.removeBullet(data.bullet);
-        }
-    }
-
-    /**
-     * Update explosions
-     * @param {number} deltaTime - Time since last update in seconds
-     * @private
-     */
-    _updateExplosions(deltaTime) {
-        // Update and remove completed explosions
-        for (let i = this.explosions.length - 1; i >= 0; i--) {
-            const explosion = this.explosions[i];
-            
-            // Skip if already inactive
-            if (!explosion.isActive) {
-                this.explosions.splice(i, 1);
-                continue;
-            }
-            
-            // Update explosion
-            const isActive = explosion.update(deltaTime);
-            
-            // Remove from active list if complete but don't destroy
-            // since we're now pooling explosions
-            if (!isActive) {
-                this.explosions.splice(i, 1);
-                // Already marked as inactive in the update method
-                // and visual elements have been hidden
-            }
-        }
     }
 } 

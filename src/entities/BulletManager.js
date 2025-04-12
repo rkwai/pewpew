@@ -20,48 +20,6 @@ export class BulletManager {
         this._bullets = [];
         this._bulletPool = [];
         this._maxPoolSize = GameConfig.bullet?.maxBullets || 200;
-        
-        // Subscribe to collision events
-        this.collisionUnsubscribe = Events.on(EventTypes.ENTITY_COLLISION, (data) => {
-            this.handleCollisionEvent(data);
-        });
-    }
-    
-    /**
-     * Handle collision events
-     * @param {Object} data - Collision event data
-     */
-    handleCollisionEvent(data) {
-        const { entityA, entityB } = data;
-        
-        // Check if collision involves a bullet
-        const bullet = 
-            entityA.type === CollisionTypes.BULLET ? entityA :
-            entityB.type === CollisionTypes.BULLET ? entityB : null;
-            
-        // Skip if no bullet or if bullet is already being processed for removal
-        if (!bullet) return;
-        
-        // Get the other entity
-        const otherEntity = entityA === bullet ? entityB : entityA;
-        
-        // Store reference to this for use in callback
-        const self = this;
-        
-        // Handle different entity types
-        if (otherEntity.type === CollisionTypes.ASTEROID) {
-            // Emit bullet hit event before removing the bullet
-            Events.emit(EventTypes.BULLET_HIT, {
-                bullet: bullet,
-                target: otherEntity,
-                point: data.point // Use the collision point from the data
-            });
-            
-            // Queue bullet for removal on next frame to ensure collision processing completes
-            requestAnimationFrame(() => {
-                self.removeBullet(bullet);
-            });
-        }
     }
     
     /**
@@ -213,11 +171,6 @@ export class BulletManager {
      * Clean up resources
      */
     destroy() {
-        // Unsubscribe from collision events
-        if (this.collisionUnsubscribe) {
-            this.collisionUnsubscribe();
-        }
-        
         // Destroy all bullets and clear pool
         [...this._bullets, ...this._bulletPool].forEach(bullet => {
             if (bullet) {

@@ -6,9 +6,12 @@ import { EntityRenderer } from './EntityRenderer.js';
  * Renderer for the player ship
  */
 export class PlayerRenderer extends EntityRenderer {
-    // Add static shared materials and count
-    static sharedMaterials = null;
+    // Static shared material for the player ship
+    static sharedPlayerMaterial = null;
     static instanceCount = 0;
+    // Add static variables to store shared geometries and materials
+    static sharedGeometries = null;
+    static sharedMaterials = null;
     
     constructor(scene) {
         super(scene);
@@ -39,51 +42,70 @@ export class PlayerRenderer extends EntityRenderer {
             position: new THREE.Vector3(0, 0, 0),
             rotation: new THREE.Euler(0, 0, 0) // Face forward in 3D view
         }).then(model => {
-            // Reuse shared materials if they exist
-            if (PlayerRenderer.sharedMaterials) {
+            // Initialize shared materials and geometries if this is the first instance
+            if (!PlayerRenderer.sharedMaterials || !PlayerRenderer.sharedGeometries) {
+                PlayerRenderer.sharedMaterials = [];
+                PlayerRenderer.sharedGeometries = [];
                 model.traverse((child) => {
                     if (child.isMesh) {
+                        // Store geometry
+                        if (child.geometry) {
+                            PlayerRenderer.sharedGeometries.push(child.geometry);
+                        }
+                        // Store material(s)
                         if (Array.isArray(child.material)) {
-                            // Replace array of materials with shared ones
-                            child.material = child.material.map((mat, index) => {
-                                if (PlayerRenderer.sharedMaterials[index]) {
-                                    return PlayerRenderer.sharedMaterials[index];
-                                }
-                                return mat;
-                            });
+                            PlayerRenderer.sharedMaterials.push(...child.material);
                         } else if (child.material) {
-                            // Use the first shared material for single materials
-                            if (PlayerRenderer.sharedMaterials[0]) {
-                                child.material = PlayerRenderer.sharedMaterials[0];
-                            }
+                            PlayerRenderer.sharedMaterials.push(child.material);
                         }
                     }
                 });
             } else {
-                // Initialize shared materials from this first instance
-                PlayerRenderer.sharedMaterials = [];
-                
-                // Store unique materials in the shared cache
+                 // Reuse materials and geometries for subsequent instances
                 model.traverse((child) => {
                     if (child.isMesh) {
+                        // Find the original mesh in the first loaded model to get the correct geometry/material reference
+                        // Note: This assumes mesh names are consistent or structure is identical.
+                        // A more robust approach might involve storing a map based on mesh names or UUIDs.
+                        const originalMeshGeometry = PlayerRenderer.sharedGeometries.find(g => g.uuid === child.geometry.uuid);
+                        if (originalMeshGeometry) {
+                            child.geometry = originalMeshGeometry;
+                        }
+
                         if (Array.isArray(child.material)) {
-                            // Store each material in the array
-                            child.material.forEach((mat) => {
-                                if (!PlayerRenderer.sharedMaterials.includes(mat)) {
-                                    PlayerRenderer.sharedMaterials.push(mat);
-                                }
+                             child.material = child.material.map(m => {
+                                const originalMaterial = PlayerRenderer.sharedMaterials.find(sm => sm.uuid === m.uuid);
+                                return originalMaterial || m; // Fallback to current material if not found
                             });
                         } else if (child.material) {
-                            // Store single material
-                            if (!PlayerRenderer.sharedMaterials.includes(child.material)) {
-                                PlayerRenderer.sharedMaterials.push(child.material);
-                            }
+                            const originalMaterial = PlayerRenderer.sharedMaterials.find(sm => sm.uuid === child.material.uuid);
+                            child.material = originalMaterial || child.material; // Fallback
                         }
                     }
                 });
             }
+
+            // No longer needed: Replace all materials with the shared player material
+            // model.traverse((child) => {
+            //     if (child.isMesh) {
+            //         child.material = PlayerRenderer.sharedPlayerMaterial;
+            //     }
+            // });
+
+            // Assign the loaded model to this instance
+            this.model = model; // Make sure the model is assigned here
+            this.scene.add(this.model); // Add the model to the scene
+
+            // Update transform immediately after loading
+             if (this.pendingPosition && this.pendingRotation) {
+                this.updateTransform(this.pendingPosition, this.pendingRotation);
+            }
+
+
         }).catch(error => {
-            throw error;
+            // Throw error instead of just logging
+             console.error("PlayerRenderer: Failed to load model:", error);
+            throw new Error(`Failed to load player model: ${error.message}`);
         });
     }
 
@@ -234,26 +256,47 @@ export class PlayerRenderer extends EntityRenderer {
             
             // Decrement instance count
             PlayerRenderer.instanceCount--;
-            
-            // Only dispose of materials if this is the last instance
+
+            // Dispose the shared materials and geometries only if this is the last instance
             if (PlayerRenderer.instanceCount === 0) {
-                // Dispose of materials and clear the cache
+                 if (PlayerRenderer.sharedGeometries) {
+                    PlayerRenderer.sharedGeometries.forEach(geometry => geometry.dispose());
+                    PlayerRenderer.sharedGeometries = null;
+                }
                 if (PlayerRenderer.sharedMaterials) {
                     PlayerRenderer.sharedMaterials.forEach(material => {
-                        if (material) material.dispose();
+                        // Dispose textures associated with the material
+                        if (material.map) material.map.dispose();
+                        if (material.normalMap) material.normalMap.dispose();
+                        if (material.roughnessMap) material.roughnessMap.dispose();
+                        if (material.metalnessMap) material.metalnessMap.dispose();
+                        if (material.emissiveMap) material.emissiveMap.dispose();
+                        // Dispose other potential texture maps (aoMap, displacementMap, etc.)
+                        material.dispose();
                     });
                     PlayerRenderer.sharedMaterials = null;
                 }
+                 // Remove disposal logic for the old single shared material
+                 /*
+                if (PlayerRenderer.sharedPlayerMaterial) {
+                    // Dispose textures used by the shared material
+                    if (PlayerRenderer.sharedPlayerMaterial.map) {
+                        PlayerRenderer.sharedPlayerMaterial.map.dispose();
+                    }
+                    PlayerRenderer.sharedPlayerMaterial.dispose();
+                    PlayerRenderer.sharedPlayerMaterial = null;
+                }
+                */
             }
             
-            // Dispose of geometries only
+            // Dispose geometries, detach shared material
             this.model.traverse((node) => {
                 if (node.isMesh) {
                     if (node.geometry) {
                         node.geometry.dispose();
                     }
-                    // Don't dispose materials as they are shared
-                    node.material = null;
+                    // Detach shared material reference - no longer needed as we reuse original materials
+                    // node.material = null;
                 }
             });
             

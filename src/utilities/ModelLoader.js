@@ -7,11 +7,6 @@ import { enhanceObjectMaterial } from './renderingUtils.js';
 export class ModelLoader {
     // Static cache for models
     static modelCache = new Map();
-    static textureCache = new Map();
-
-    // Add texture management
-    static MAX_TEXTURES = 12; // Keep well below the WebGL limit of 16
-    static activeTextureCount = 0;
 
     /**
      * Load a GLTF model from the given path
@@ -23,12 +18,6 @@ export class ModelLoader {
      * @returns {Promise} Promise that resolves with the loaded model
      */
     static loadModel(modelPath, config, onSuccess, onProgress, onError) {
-        // Check if we're approaching the texture limit
-        if (ModelLoader.activeTextureCount > ModelLoader.MAX_TEXTURES) {
-            console.warn(`Approaching texture limit (${ModelLoader.activeTextureCount}/${ModelLoader.MAX_TEXTURES}). Clearing cache.`);
-            ModelLoader.clearCache(); // Clear the cache to prevent reaching the limit
-        }
-
         // Check if model is already cached
         if (ModelLoader.modelCache.has(modelPath)) {
             const cachedModel = ModelLoader.modelCache.get(modelPath);
@@ -55,25 +44,6 @@ export class ModelLoader {
                 (gltf) => {            
                     // Cache the original model
                     ModelLoader.modelCache.set(modelPath, gltf.scene);
-                    
-                    // Cache all textures used in the model and count them
-                    gltf.scene.traverse((node) => {
-                        if (node.isMesh && node.material) {
-                            const materials = Array.isArray(node.material) ? node.material : [node.material];
-                            materials.forEach(material => {
-                                ['map', 'lightMap', 'bumpMap', 'normalMap', 'specularMap', 'envMap'].forEach(mapType => {
-                                    if (material[mapType]) {
-                                        const texture = material[mapType];
-                                        const textureKey = `${modelPath}_${mapType}_${texture.uuid}`;
-                                        if (!ModelLoader.textureCache.has(textureKey)) {
-                                            ModelLoader.textureCache.set(textureKey, texture);
-                                            ModelLoader.activeTextureCount++;
-                                        }
-                                    }
-                                });
-                            });
-                        }
-                    });
                     
                     // Clone the model for this instance
                     const clonedModel = gltf.scene.clone();
@@ -170,19 +140,5 @@ export class ModelLoader {
                 }
             }
         });
-    }
-
-    /**
-     * Clear the model and texture caches
-     */
-    static clearCache() {
-        // Properly dispose of textures before clearing
-        ModelLoader.textureCache.forEach(texture => {
-            texture.dispose();
-        });
-        
-        ModelLoader.modelCache.clear();
-        ModelLoader.textureCache.clear();
-        ModelLoader.activeTextureCount = 0;
     }
 } 
