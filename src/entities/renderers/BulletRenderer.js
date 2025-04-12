@@ -90,6 +90,16 @@ export class BulletRenderer extends EntityRenderer {
     }
 
     /**
+     * Sets the visibility of the bullet model.
+     * @param {boolean} visible - True to make the model visible, false to hide it.
+     */
+    setVisible(visible) {
+        if (this.mesh) {
+            this.mesh.visible = visible;
+        }
+    }
+
+    /**
      * Clean up resources
      */
     dispose() {

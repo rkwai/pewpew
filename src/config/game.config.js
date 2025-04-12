@@ -193,8 +193,8 @@ export const GameConfig = {
         lifespan: 10, // Increased from 2 to 10 seconds to ensure bullets can reach screen edge
         
         // Pooling settings
-        poolSize: 100, // Increased from 30 to handle rapid firing
-        maxBullets: 100, // Maximum number of bullets that can exist at once
+        poolSize: 200, // Increased from 100 to handle rapid firing
+        maxBullets: 200, // Increased from 100. Maximum number of bullets that can exist at once
         
         // Debug settings
         debug: {

@@ -12,9 +12,8 @@ export class Bullet {
      * @param {THREE.Scene} scene - The scene to add the bullet to
      * @param {THREE.Vector3} position - The initial position
      * @param {THREE.Vector3} direction - The direction to travel
-     * @param {BulletRenderer} renderer - The shared bullet renderer
      */
-    constructor(scene, position, direction, renderer) {
+    constructor(scene, position, direction) {
         this.scene = scene;
         this.position = position.clone();
         this.type = CollisionTypes.BULLET;
@@ -35,13 +34,9 @@ export class Bullet {
         this.lifespan = GameConfig.bullet?.lifespan || 5; // Increased default lifespan to 5 seconds
         this.isActive = true;
         
-        // Create renderer if it doesn't exist
-        if (!renderer) {
-            this.renderer = new BulletRenderer(this.scene, this.size);
-            this.renderer.updateTransform(this.position);
-        } else {
-            this.renderer = renderer;
-        }
+        // Always create a renderer for this bullet instance
+        this.renderer = new BulletRenderer(this.scene, this.size);
+        this.renderer.updateTransform(this.position);
         
         // Lock Z position to config value
         this.position.z = GameConfig.screen.bounds.z;
@@ -174,14 +169,13 @@ export class Bullet {
     
     /**
      * Clean up resources
-     * @param {boolean} [destroyRenderer=true] - Whether to destroy the renderer
      */
-    destroy(destroyRenderer = true) {
+    destroy() {
         // Store final position for collision checks
         const finalPosition = this.position ? this.position.clone() : null;
         
-        // Clean up renderer if needed
-        if (destroyRenderer && this.renderer) {
+        // Always clean up the renderer owned by this bullet
+        if (this.renderer) {
             this.renderer.dispose();
         }
         this.renderer = null;
