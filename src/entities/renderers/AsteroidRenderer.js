@@ -1,7 +1,7 @@
 import { THREE } from '../../utilities/ThreeImports.js';
 import { GameConfig } from '../../config/game.config.js';
 import { EntityRenderer } from './EntityRenderer.js';
-import { enhanceMaterial } from '../../utilities/Utils.js';
+import { enhanceMaterial } from '../../utilities/renderingUtils.js';
 
 /**
  * Renderer for asteroid entities

@@ -25,6 +25,9 @@ To organize your project, you'll need a clear directory structure. Here's a sugg
   - **sounds/**: For effects and music.
 - **build/**: Includes compiled files for deployment (e.g., `index.html`, `game.min.js`).
 
+## Understand the Codebase
+- Look at the diagrams: [c1-diagrams.md](mdc:diagrams/c1-diagrams.md), [c2-diagrams.md](mdc:diagrams/c2-diagrams.md), [c3-diagrams.md](mdc:diagrams/c3-diagrams.md) for context
+
 ## Coding Standards
 - Do NOT use fallback code -- throw errors and block execution instead
 - Always analyze and understand the code paths before making changes

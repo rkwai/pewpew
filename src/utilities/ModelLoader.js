@@ -1,5 +1,5 @@
 import { THREE, GLTFLoader } from './ThreeImports.js';
-import { enhanceObjectMaterial } from './Utils.js';
+import { enhanceObjectMaterial } from './renderingUtils.js';
 
 /**
  * Utility for loading and managing 3D models

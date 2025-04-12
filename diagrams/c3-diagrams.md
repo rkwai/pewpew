@@ -19,14 +19,13 @@ C4Component
     Rel(StateManager, EntityManager, "Uses")
     Rel(StateManager, UIManager, "Updates")
     Rel(EntityManager, Entities, "Manages Instances Of")
-    Rel(EntityManager, InputHandler, "Receives Input For")
     Rel(Entities, Renderer, "Provides Data To")
     Rel(Renderer, AssetLoader, "Uses Loaded")
-    Rel(InputHandler, GameManager, "Sends Input To")
+    Rel(InputHandler, GameManager, "Sends Processed Input To")
     Rel(UIManager, Renderer, "Uses For Display")
     Rel(GameManager, UIManager, "Controls")
 
-    BiRel(Renderer, Entities, "Renders/Updates")
+    Rel(Renderer, Entities, "Reads State From")
 
     UpdateRelStyle(GameManager, StateManager, $textColor="black", $lineColor="black")
     UpdateRelStyle(StateManager, EntityManager, $textColor="black", $lineColor="black")
@@ -35,12 +34,7 @@ C4Component
     UpdateRelStyle(Renderer, AssetLoader, $textColor="black", $lineColor="black")
     UpdateRelStyle(InputHandler, GameManager, $textColor="black", $lineColor="black")
 
-    %% Relationships involving multiple components often use Utils
-    Rel(GameManager, Utils, "Uses")
-    Rel(StateManager, Utils, "Uses")
-    Rel(EntityManager, Utils, "Uses")
-    Rel(Entities, Utils, "Uses")
-    Rel(Renderer, Utils, "Uses")
+    %% Relationships involving multiple components often use specific Utils modules (Math, Collision, Rendering)
   }
 
 ```

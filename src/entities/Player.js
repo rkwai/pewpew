@@ -1,6 +1,6 @@
 import { THREE } from '../utilities/ThreeImports.js';
 import { GameConfig } from '../config/game.config.js';
-import { enhanceMaterial } from '../utilities/Utils.js';
+import { enhanceMaterial } from '../utilities/renderingUtils.js';
 import { Explosion } from './Explosion.js';
 import { Bullet } from './Bullet.js';
 import { BulletManager } from './BulletManager.js';

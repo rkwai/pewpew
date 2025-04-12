@@ -1,5 +1,5 @@
 import { THREE } from '../utilities/ThreeImports.js';
-import { checkCollision } from '../utilities/Utils.js';
+import { checkCollision } from '../utilities/collisionUtils.js';
 import { Events } from './EventSystem.js';
 import { EventTypes } from './EventTypes.js';
 

@@ -1,6 +1,8 @@
 import { THREE, GLTFLoader } from '../utilities/ThreeImports.js';
 import { GameConfig } from '../config/game.config.js';
-import { random, randomInt, enhanceMaterial, lerp, smoothStep, easeInOut, smoothOscillate, checkCollision } from '../utilities/Utils.js';
+import { random, randomInt, lerp, smoothStep, easeInOut, smoothOscillate } from '../utilities/mathUtils.js';
+import { checkCollision } from '../utilities/collisionUtils.js';
+import { enhanceMaterial } from '../utilities/renderingUtils.js';
 import { Explosion } from './Explosion.js';
 import { CollisionTypes } from '../states/CollisionSystem.js';
 import { AsteroidRenderer } from './renderers/AsteroidRenderer.js';
