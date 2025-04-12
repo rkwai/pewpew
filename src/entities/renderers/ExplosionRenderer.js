@@ -238,21 +238,15 @@ export class ExplosionRenderer extends EntityRenderer {
             if (child.isMesh) {
                 const materials = Array.isArray(child.material) ? child.material : [child.material];
                 materials.forEach(material => {
-                    // Flicker the emissive intensity
-                    const flicker = 0.75 + Math.random() * 0.5;
-                    material.emissiveIntensity = 3.0 * (1 - progress) * flicker;
-                    
-                    // Fade out opacity
+                    // Flicker the emissive intensity based on progress and randomness
+                    const flicker = 0.75 + Math.random() * 0.5; // Keep intensity flicker
+                    material.emissiveIntensity = (GameConfig.explosion?.initialEmissiveIntensity || 3.0) * (1 - progress) * flicker;
+
+                    // Fade out opacity based on progress
                     material.opacity = 1.0 * (1 - progress);
-                    
-                    // Alternate between orange and yellow for color flicker
-                    if (Math.random() > 0.5) {
-                        material.color.setHex(0xff6600); // Orange
-                        material.emissive.setHex(0xffcc00); // Yellow
-                    } else {
-                        material.color.setHex(0xff9900); // Lighter orange
-                        material.emissive.setHex(0xffaa00); // Darker yellow
-                    }
+
+                    // Ensure material properties are updated (might be needed depending on Three.js version)
+                    material.needsUpdate = true; 
                 });
             }
         });
