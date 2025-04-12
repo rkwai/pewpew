@@ -49,28 +49,11 @@ export class Explosion {
         
         // Clean up existing renderer but don't create a new one if it exists
         if (this.renderer) {
-            // Instead of disposing, reuse the renderer and update its position
+            // Update position and reset for particle-based renderer
             this.renderer.updateTransform(position);
             
-            // Make models visible again
-            if (this.renderer.model) {
-                this.renderer.model.visible = true;
-            }
-            
-            // Reset explosion light
-            if (this.renderer.explosionLight) {
-                this.renderer.explosionLight.visible = true;
-                this.renderer.explosionLight.position.copy(position);
-            }
-            
-            // Reset animation/lifetime
-            if (this.renderer.resetExplosion) {
-                this.renderer.resetExplosion(size);
-            } else {
-                // If no reset method exists, create a new renderer
-                this.renderer.dispose();
-                this.renderer = new ExplosionRenderer(scene, position, size);
-            }
+            // Reset the explosion (the particle system will be reused)
+            this.renderer.resetExplosion(size);
         } else {
             // Create a new renderer if one doesn't exist
             this.renderer = new ExplosionRenderer(scene, position, size);
@@ -96,19 +79,12 @@ export class Explosion {
         // Update through renderer
         const isStillActive = this.renderer.update(deltaTime);
         
-        // If explosion has finished, mark as inactive and hide visuals
+        // If explosion has finished, mark as inactive
         if (!isStillActive) {
             this.isActive = false;
             
-            // Hide the explosion model when inactive
-            if (this.renderer && this.renderer.model) {
-                this.renderer.model.visible = false;
-            }
-            
-            // Hide any explosion lights
-            if (this.renderer && this.renderer.explosionLight) {
-                this.renderer.explosionLight.visible = false;
-            }
+            // The renderer handles hiding the container and particles
+            // No need to manually hide components anymore
         }
         
         return this.isActive;
@@ -141,8 +117,10 @@ export class Explosion {
     
     /**
      * Static method to preload the explosion model
+     * (No-op for particle system as it doesn't need preloading)
      */
     static preloadModel() {
+        // Keep for compatibility, but particle system doesn't need preloading
         ExplosionRenderer.preloadModel();
     }
 } 

@@ -638,7 +638,7 @@ export class Gameplay {
             
             // Update explosion
             const isActive = explosion.update(deltaTime);
-            
+
             // Remove from active list if complete but don't destroy
             // since we're now pooling explosions
             if (!isActive) {
@@ -670,6 +670,8 @@ export class Gameplay {
         // If all explosions are active, reuse the oldest one
         if (this.explosionPool.length > 0) {
             const oldestExplosion = this.explosionPool.shift();
+            // Explicitly mark inactive before reset, just in case it's still in the active list
+            oldestExplosion.isActive = false; 
             oldestExplosion.explode(position.x, position.y, position.z, size);
             this.explosionPool.push(oldestExplosion);
             return oldestExplosion;

@@ -1,406 +1,437 @@
 import { THREE } from '../../utilities/ThreeImports.js';
 import { GameConfig } from '../../config/game.config.js';
 import { EntityRenderer } from './EntityRenderer.js';
-import { GLTFLoader } from '../../utilities/ThreeImports.js';
 
 /**
- * Renderer for explosion effects using only model animation
+ * Renderer for explosion effects using particles and light
  */
 export class ExplosionRenderer extends EntityRenderer {
-    // Static model cache to avoid reloading for each explosion
-    static modelCache = null;
-    static modelLoading = false;
-    static modelCallbacks = [];
-    
-    // Shared material for all explosion instances
-    static sharedExplosionMaterial = null;
-    static instanceCount = 0; // Add instance count for shared material disposal
-    
     constructor(scene, position, size = 1) {
         super(scene);
         this.position = position.clone();
         this.size = size;
-        this.lifetime = GameConfig.explosion.lifetime || 1.5;
-        this.animationMixer = null;
-        this.animationActions = [];
-        this.explosionLight = null;
-        ExplosionRenderer.instanceCount++; // Increment instance count
-                
-        // Set initial model container position
-        if (this.position) {
-            this.updateTransform(this.position);
-        }
+        this.lifetime = GameConfig.explosion?.lifetime || 1.5;
+        this.totalLifetime = this.lifetime;
+        this.isActive = true;
         
-        // Initialize the model immediately
-        this._initializeModel();
+        // Create container
+        this.container = new THREE.Group();
+        this.container.position.copy(this.position);
+        this.scene.add(this.container);
         
-        // Create explosion light for visual effect
-        this._createExplosionLight();
+        // Create particle system
+        this._createParticleSystem();
+        
+        // Create core glow
+        this._createCoreGlow();
+        
+        // Create light
+        this._createLight();
     }
-
+    
     /**
-     * Initialize the explosion model
+     * Create particle system for explosion
      * @private
      */
-    _initializeModel() {
-        // If model is already cached, use it immediately
-        if (ExplosionRenderer.modelCache) {
-            this._setupModel(ExplosionRenderer.modelCache);
-            return;
+    _createParticleSystem() {
+        // Number of particles scales with explosion size
+        const particleCount = Math.floor(100 * this.size);
+        
+        // Create geometry and store initial positions/velocities
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(particleCount * 3);
+        const colors = new Float32Array(particleCount * 3);
+        this.particleVelocities = [];
+        
+        // Generate random particles in sphere
+        for (let i = 0; i < particleCount; i++) {
+            // Random position in sphere (randomized distance from center)
+            const radius = Math.random() * 0.1 * this.size;
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.random() * Math.PI;
+            
+            const x = radius * Math.sin(phi) * Math.cos(theta);
+            const y = radius * Math.sin(phi) * Math.sin(theta);
+            const z = radius * Math.cos(phi);
+            
+            positions[i * 3] = x;
+            positions[i * 3 + 1] = y;
+            positions[i * 3 + 2] = z;
+            
+            // Random colors (orange to yellow)
+            const colorFactor = Math.random();
+            colors[i * 3] = 1.0; // Red
+            colors[i * 3 + 1] = 0.3 + colorFactor * 0.7; // Green
+            colors[i * 3 + 2] = colorFactor * 0.3; // Blue
+            
+            // Random velocity (outward direction)
+            const speed = (0.5 + Math.random() * 1.5) * this.size;
+            const vx = x === 0 ? (Math.random() - 0.5) * speed : (x / radius) * speed;
+            const vy = y === 0 ? (Math.random() - 0.5) * speed : (y / radius) * speed;
+            const vz = z === 0 ? (Math.random() - 0.5) * speed : (z / radius) * speed;
+            
+            this.particleVelocities.push({ vx, vy, vz });
         }
         
-        // If model is loading, add to callbacks
-        if (ExplosionRenderer.modelLoading) {
-            ExplosionRenderer.modelCallbacks.push((model) => {
-                this._setupModel(model);
-            });
-            return;
-        }
+        // Create attribute buffers
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
         
-        // Start loading model
-        this._loadModel();
-    }
-
-    /**
-     * Load the explosion model
-     * @private
-     */
-    _loadModel() {
-        // Check that config has the model path
-        if (!GameConfig.explosion?.model?.path) {
-            console.error('Explosion model path not specified in GameConfig');
-            throw new Error('Explosion model path not specified in GameConfig');
-        }
-
-        // Start loading indicator
-        ExplosionRenderer.modelLoading = true;
-        
-        // Create model loader
-        const loader = new GLTFLoader();
-        loader.load(
-            GameConfig.explosion.model.path,
-            (gltf) => {
-                // Store in static cache
-                ExplosionRenderer.modelCache = gltf;
-                ExplosionRenderer.modelLoading = false;
-                
-                // Set up this instance
-                this._setupModel(gltf);
-                
-                // Process any callbacks waiting for the model
-                if (ExplosionRenderer.modelCallbacks && ExplosionRenderer.modelCallbacks.length > 0) {
-                    ExplosionRenderer.modelCallbacks.forEach(callback => callback(gltf));
-                    ExplosionRenderer.modelCallbacks = [];
-                }
-            },
-            (xhr) => {
-                // Progress callback
-                const progress = (xhr.loaded / xhr.total * 100).toFixed(1);
-            },
-            (error) => {
-                // Error callback
-                ExplosionRenderer.modelLoading = false;
-                throw new Error(`Failed to load explosion model: ${error.message}`);
-            }
-        );
-    }
-
-    /**
-     * Set up the explosion model
-     * @param {Object} gltf - The loaded GLTF model
-     * @private
-     */
-    _setupModel(gltf) {
-        if (!this.scene) {
-            console.warn('Cannot setup model: scene is not available');
-            return;
-        }
-        
-        // Clone the model
-        this.model = gltf.scene.clone();
-        
-        // Scale according to explosion size and config scale
-        const modelScale = GameConfig.explosion.model.scale * this.size;
-        this.model.scale.set(modelScale, modelScale, modelScale);
-        
-        // Initialize the shared material if it doesn't exist
-        if (!ExplosionRenderer.sharedExplosionMaterial) {
-            ExplosionRenderer.sharedExplosionMaterial = new THREE.MeshStandardMaterial({
-                color: new THREE.Color(GameConfig.explosion?.material?.color || 0xff6600),
-                emissive: new THREE.Color(GameConfig.explosion?.material?.emissive || 0xffcc00),
-                emissiveIntensity: GameConfig.explosion?.initialEmissiveIntensity || 3.0,
-                transparent: true,
-                opacity: 1.0,
-                depthWrite: false, // Good practice for transparent effects
-                blending: THREE.AdditiveBlending // Optional: for brighter effect
-            });
-        }
-        
-        // Position at explosion center
-        this.model.position.copy(this.position);
-        
-        // Replace all materials with the shared explosion material
-        this.model.traverse((child) => {
-            if (child.isMesh) {
-                child.material = ExplosionRenderer.sharedExplosionMaterial;
-            }
+        // Create material
+        const material = new THREE.PointsMaterial({
+            size: 0.2 * this.size,
+            vertexColors: true,
+            transparent: true,
+            opacity: 1.0,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            sizeAttenuation: true
         });
         
-        // Create animation mixer
-        this.animationMixer = new THREE.AnimationMixer(this.model);
+        // Store material reference for updates
+        this.particleMaterial = material;
         
-        // Clone and play animations
-        if (gltf.animations && gltf.animations.length > 0) {
-            gltf.animations.forEach(animation => {
-                const action = this.animationMixer.clipAction(animation);
-                action.setLoop(THREE.LoopOnce);
-                action.clampWhenFinished = true;
-                action.play();
-                this.animationActions.push(action);
-            });
-        }
-        
-        // Add to scene
-        this.scene.add(this.model);
+        // Create points system
+        this.particles = new THREE.Points(geometry, material);
+        this.container.add(this.particles);
     }
-
+    
     /**
-     * Create a light for the explosion
+     * Create bright core glow for explosion
      * @private
      */
-    _createExplosionLight() {
-        const colors = [0xff6600, 0xff9900, 0xffcc00]; // Orange to yellow colors
+    _createCoreGlow() {
+        // Create core geometry (sphere)
+        const geometry = new THREE.SphereGeometry(0.2 * this.size, 12, 12);
+        
+        // Create material with emissive glow
+        const material = new THREE.MeshBasicMaterial({
+            color: 0xffcc00,
+            transparent: true,
+            opacity: 1.0,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending
+        });
+        
+        // Store material reference for updates
+        this.coreMaterial = material;
+        
+        // Create mesh
+        this.core = new THREE.Mesh(geometry, material);
+        this.container.add(this.core);
+    }
+    
+    /**
+     * Create light effect
+     * @private
+     */
+    _createLight() {
+        const colors = [0xff6600, 0xff9900, 0xffcc00]; // Orange to yellow
         const lightColor = colors[Math.floor(Math.random() * colors.length)];
         
-        const lightDistance = this.size * 50;
-        
-        this.explosionLight = new THREE.PointLight(lightColor, 5, lightDistance); // Increased intensity
-        this.explosionLight.position.copy(this.position);
-        // Force shadows off for explosion lights to avoid exceeding texture limits
-        this.explosionLight.castShadow = false; 
-        
-        this.scene.add(this.explosionLight);
-        this.effectMeshes.push(this.explosionLight);
+        // Create point light
+        this.light = new THREE.PointLight(lightColor, 5, this.size * 20);
+        this.light.castShadow = false;
+        this.container.add(this.light);
     }
-
+    
     /**
-     * Update the explosion
+     * Update explosion animation
      * @param {number} deltaTime - Time since last update in seconds
      * @returns {boolean} - True if explosion is still active, false if complete
      */
     update(deltaTime) {
-        // If no model or animations, consider explosion inactive
-        if (!this.model || !this.animationMixer) {
-            return false;
-        }
+        if (!this.isActive) return false;
         
         // Decrease lifetime
         this.lifetime -= deltaTime;
         
-        // Calculate lifetime progress (0 to 1)
-        const progress = 1 - (this.lifetime / (GameConfig.explosion?.lifetime || 1.5));
+        // Calculate progress (0 to 1)
+        const progress = 1 - (this.lifetime / this.totalLifetime);
         
-        // Update animation mixer
-        this.animationMixer.update(deltaTime);
+        // Update particles
+        this._updateParticles(deltaTime, progress);
         
-        // Update light effects
-        this._updateLight(deltaTime);
+        // Update core
+        this._updateCore(progress);
         
-        // Add flickering effect and fade out using the shared material
-        // No need to traverse, just update the shared material once
-        if (ExplosionRenderer.sharedExplosionMaterial) {
-            const material = ExplosionRenderer.sharedExplosionMaterial;
-            // Flicker the emissive intensity based on progress and randomness
-            const flicker = 0.75 + Math.random() * 0.5; // Keep intensity flicker
-            material.emissiveIntensity = (GameConfig.explosion?.initialEmissiveIntensity || 3.0) * (1 - progress) * flicker;
-
-            // Fade out opacity based on progress
-            material.opacity = 1.0 * (1 - progress);
-
-            // Ensure material properties are updated (might be needed depending on Three.js version)
-            material.needsUpdate = true; 
+        // Update light
+        this._updateLight(progress);
+        
+        // If expired, hide and mark inactive
+        if (this.lifetime <= 0) {
+            // Force all materials to zero opacity before hiding
+            if (this.particleMaterial) {
+                this.particleMaterial.opacity = 0;
+                // Force particles invisible to prevent any rendering artifacts
+                if (this.particles) {
+                    this.particles.visible = false;
+                }
+            }
+            
+            if (this.coreMaterial) {
+                this.coreMaterial.opacity = 0;
+                // Force core invisible to prevent any rendering artifacts
+                if (this.core) {
+                    this.core.visible = false;
+                }
+            }
+            
+            if (this.light) {
+                this.light.intensity = 0;
+                // Force light invisible to prevent any rendering artifacts
+                this.light.visible = false;
+            }
+            
+            this.isActive = false;
+            // Ensure the entire container is invisible
+            if (this.container) {
+                this.container.visible = false;
+                
+                // Remove from scene temporarily to force complete disappearance
+                if (this.scene) {
+                    this.scene.remove(this.container);
+                    // We'll add it back when resetExplosion is called
+                }
+            }
+            
+            return false;
         }
         
-        // Return whether the explosion should still be active
-        return this.lifetime > 0;
+        return true;
     }
-
+    
     /**
-     * Update the explosion light
-     * @param {number} deltaTime - Time since last update in seconds
+     * Update particle positions and appearance
+     * @param {number} deltaTime - Time since last update
+     * @param {number} progress - Animation progress (0-1)
      * @private
      */
-    _updateLight(deltaTime) {
-        if (!this.explosionLight) return;
+    _updateParticles(deltaTime, progress) {
+        if (!this.particles) return;
         
-        // Calculate lifetime progress (0 to 1)
-        const progress = 1 - (this.lifetime / (GameConfig.explosion?.lifetime || 1.5));
+        // Slow down particles over time (drag effect)
+        const slowdownFactor = 0.95;
         
-        // Fade out light intensity with flicker
-        const flicker = 0.8 + Math.random() * 0.4;
-        const initialIntensity = 5;
-        const targetIntensity = 0;
-        this.explosionLight.intensity = (initialIntensity * (1 - progress) + targetIntensity * progress) * flicker;
+        // Get position attribute
+        const positions = this.particles.geometry.attributes.position;
         
-        // Increase light radius as explosion expands
-        const initialRadius = this.size * 20;
-        const targetRadius = this.size * 50;
-        this.explosionLight.distance = initialRadius * (1 - progress) + targetRadius * progress;
-        
-        // Randomly change light color between orange and yellow
-        if (Math.random() > 0.8) { // Only change sometimes for subtle effect
-            const colors = [0xff6600, 0xff9900, 0xffcc00];
-            this.explosionLight.color.setHex(colors[Math.floor(Math.random() * colors.length)]);
-        }
-    }
-
-    /**
-     * Clean up resources
-     */
-    dispose() {
-        // Clean up light effect
-        if (this.explosionLight) {
-            this.scene.remove(this.explosionLight);
-            this.explosionLight = null;
-        }
-        
-        // Clean up animation mixer
-        if (this.animationMixer) {
-            this.animationMixer.stopAllAction();
-            this.animationActions = [];
-            this.animationMixer = null;
-        }
-        
-        // Clean up model
-        if (this.model) {
-            // Remove from scene first
-            this.scene.remove(this.model);
+        // Update each particle
+        for (let i = 0; i < positions.count; i++) {
+            // Get current position
+            let x = positions.array[i * 3];
+            let y = positions.array[i * 3 + 1];
+            let z = positions.array[i * 3 + 2];
             
-            // Dispose geometries, but material is shared, so don't dispose it here
-            this.model.traverse((node) => {
-                if (node.isMesh) {
-                    if (node.geometry) {
-                        node.geometry.dispose();
-                    }
-                    // Detach shared material reference
-                    node.material = null; // Or assign a default if needed
-                }
-            });
+            // Get velocity and apply slowdown
+            const velocity = this.particleVelocities[i];
+            velocity.vx *= slowdownFactor;
+            velocity.vy *= slowdownFactor;
+            velocity.vz *= slowdownFactor;
             
-            this.model = null;
+            // Apply gravity effect (particles fall slightly)
+            velocity.vy -= 0.01 * deltaTime;
+            
+            // Update position
+            x += velocity.vx * deltaTime;
+            y += velocity.vy * deltaTime;
+            z += velocity.vz * deltaTime;
+            
+            // Store new position
+            positions.array[i * 3] = x;
+            positions.array[i * 3 + 1] = y;
+            positions.array[i * 3 + 2] = z;
         }
         
-        // Decrement instance count
-        ExplosionRenderer.instanceCount--;
-
-        // Dispose the shared material only if this is the last instance
-        if (ExplosionRenderer.instanceCount === 0 && ExplosionRenderer.sharedExplosionMaterial) {
-            // Dispose textures used by the shared material (add others if needed)
-            if (ExplosionRenderer.sharedExplosionMaterial.map) {
-                ExplosionRenderer.sharedExplosionMaterial.map.dispose();
-            }
-            ExplosionRenderer.sharedExplosionMaterial.dispose();
-            ExplosionRenderer.sharedExplosionMaterial = null;
-        }
+        // Mark positions for update
+        positions.needsUpdate = true;
         
-        // Clear references
-        this.scene = null;
+        // Update particle opacity based on progress - ensure it fades completely
+        // Use a stronger power curve to make it fade more quickly at the end
+        const opacityFactor = Math.max(0, 1.0 - Math.pow(progress, 1.5));
+        this.particleMaterial.opacity = opacityFactor;
+        
+        // Update particle size (grow slightly then shrink)
+        const sizeProgress = progress < 0.3 ? progress / 0.3 : (1 - progress) / 0.7;
+        this.particleMaterial.size = 0.2 * this.size * (0.5 + sizeProgress);
     }
-
+    
     /**
-     * Static method to preload explosion model
+     * Update core glow appearance
+     * @param {number} progress - Animation progress (0-1)
+     * @private
      */
-    static preloadModel() {
-        // Only load if not already loading or loaded
-        if (ExplosionRenderer.modelCache || ExplosionRenderer.modelLoading) {
-            return;
-        }
+    _updateCore(progress) {
+        if (!this.core) return;
         
-        ExplosionRenderer.modelLoading = true;
-        const loader = new GLTFLoader();
+        // Core starts large and quickly shrinks
+        const scaleFactor = 1.0 - progress * 1.2;
+        const scale = Math.max(0, scaleFactor) * this.size;
+        this.core.scale.set(scale, scale, scale);
         
-        loader.load(
-            GameConfig.explosion.model.path,
-            (gltf) => {
-                ExplosionRenderer.modelCache = gltf;
-                ExplosionRenderer.modelLoading = false;
-            },
-            null,
-            (error) => {
-                ExplosionRenderer.modelLoading = false;
-                console.error('Failed to preload explosion model:', error);
-            }
-        );
+        // Core fades out more quickly than particles
+        this.coreMaterial.opacity = Math.max(0, 1.0 - progress * 1.5);
     }
-
+    
+    /**
+     * Update light intensity and range
+     * @param {number} progress - Animation progress (0-1)
+     * @private
+     */
+    _updateLight(progress) {
+        if (!this.light) return;
+        
+        // Light intensity starts high and gradually decreases
+        this.light.intensity = 5 * (1.0 - progress * progress);
+        
+        // Light range expands then contracts
+        const rangeProgress = progress < 0.5 ? progress * 2 : (1 - progress) * 2;
+        this.light.distance = this.size * (20 + rangeProgress * 30);
+    }
+    
+    /**
+     * Update transform/position of the container
+     * @param {THREE.Vector3} position - New position
+     */
+    updateTransform(position) {
+        if (this.container && position) {
+            this.position.copy(position);
+            this.container.position.copy(position);
+        }
+    }
+    
     /**
      * Reset the explosion for reuse
      * @param {number} size - New size for the explosion
      * @param {THREE.Vector3} position - Optional new position
      */
     resetExplosion(size, position = null) {
-        // Reset lifetime
-        this.lifetime = GameConfig.explosion.lifetime || 1.5;
-
-        // Update size
+        // Reset state
+        this.lifetime = GameConfig.explosion?.lifetime || 1.5;
+        this.totalLifetime = this.lifetime;
+        this.isActive = true;
+        
+        // Update size if provided
         if (size !== undefined) {
             this.size = size;
-            
-            // Scale model
-            if (this.model) {
-                const modelScale = GameConfig.explosion.model.scale * this.size;
-                this.model.scale.set(modelScale, modelScale, modelScale);
-            }
         }
         
         // Update position if provided
         if (position) {
-            this.position.copy(position);
             this.updateTransform(position);
         }
         
-        // Reset model visibility
-        if (this.model) {
-            this.model.visible = true;
+        // Make sure container is in the scene and visible
+        if (this.container) {
+            // Add back to scene if it was removed
+            if (this.scene && !this.container.parent) {
+                this.scene.add(this.container);
+            }
+            this.container.visible = true;
+        }
+        
+        // Reset particles
+        if (this.particles && this.particleMaterial) {
+            // Make sure particles are visible
+            this.particles.visible = true;
             
-            // Reset shared material properties
-            if (ExplosionRenderer.sharedExplosionMaterial) {
-                const material = ExplosionRenderer.sharedExplosionMaterial;
-                material.opacity = 1.0;
-                material.emissiveIntensity = GameConfig.explosion?.initialEmissiveIntensity || 3.0;
-                material.needsUpdate = true;
+            // Reset positions to near-center
+            const positions = this.particles.geometry.attributes.position;
+            for (let i = 0; i < positions.count; i++) {
+                // Random position in small sphere
+                const radius = Math.random() * 0.1 * this.size;
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.random() * Math.PI;
+                
+                const x = radius * Math.sin(phi) * Math.cos(theta);
+                const y = radius * Math.sin(phi) * Math.sin(theta);
+                const z = radius * Math.cos(phi);
+                
+                positions.array[i * 3] = x;
+                positions.array[i * 3 + 1] = y;
+                positions.array[i * 3 + 2] = z;
+                
+                // Reset velocities (outward direction)
+                const speed = (0.5 + Math.random() * 1.5) * this.size;
+                this.particleVelocities[i] = {
+                    vx: x === 0 ? (Math.random() - 0.5) * speed : (x / radius) * speed,
+                    vy: y === 0 ? (Math.random() - 0.5) * speed : (y / radius) * speed,
+                    vz: z === 0 ? (Math.random() - 0.5) * speed : (z / radius) * speed
+                };
             }
+            positions.needsUpdate = true;
+            
+            // Reset material properties
+            this.particleMaterial.opacity = 1.0;
+            this.particleMaterial.size = 0.2 * this.size;
         }
         
-        // Reset animation mixer
-        if (this.animationMixer && ExplosionRenderer.modelCache?.animations) {
-            this.animationActions = []; // Clear old action references
-            ExplosionRenderer.modelCache.animations.forEach(animation => {
-                const action = this.animationMixer.clipAction(animation);
-                action.reset(); // Reset time and state
-                action.setLoop(THREE.LoopOnce);
-                action.clampWhenFinished = true;
-                action.time = 0; // Explicitly set time to 0
-                action.play(); // Start playing from the beginning
-                this.animationActions.push(action); // Store new action reference if needed
-            });
-            // Optional: Reset mixer's internal time if needed, though action reset might suffice
-            // this.animationMixer.setTime(0);
+        // Reset core
+        if (this.core && this.coreMaterial) {
+            // Make sure core is visible
+            this.core.visible = true;
+            this.core.scale.set(this.size, this.size, this.size);
+            this.coreMaterial.opacity = 1.0;
         }
         
-        // Reset explosion light
-        if (this.explosionLight) {
-            const lightDistance = this.size * 50;
-            this.explosionLight.distance = lightDistance;
-            // Use config value for initial intensity or default
-            this.explosionLight.intensity = GameConfig.explosion?.light?.initialIntensity || 5;
-            this.explosionLight.visible = true;
-            if (position) {
-                this.explosionLight.position.copy(position);
-            }
-        } else {
-            // Create light if it doesn't exist
-            this._createExplosionLight();
+        // Reset light
+        if (this.light) {
+            // Make sure light is visible
+            this.light.visible = true;
+            this.light.intensity = 5;
+            this.light.distance = this.size * 20;
+            
+            // Randomly change light color
+            const colors = [0xff6600, 0xff9900, 0xffcc00];
+            this.light.color.setHex(colors[Math.floor(Math.random() * colors.length)]);
         }
+    }
+    
+    /**
+     * Clean up resources
+     */
+    dispose() {
+        // Mark inactive
+        this.isActive = false;
+        
+        // Remove container and all children
+        if (this.container) {
+            this.scene.remove(this.container);
+            
+            // Dispose geometries and materials
+            if (this.particles) {
+                this.particles.geometry.dispose();
+                this.particleMaterial.dispose();
+                this.container.remove(this.particles);
+                this.particles = null;
+                this.particleMaterial = null;
+            }
+            
+            if (this.core) {
+                this.core.geometry.dispose();
+                this.coreMaterial.dispose();
+                this.container.remove(this.core);
+                this.core = null;
+                this.coreMaterial = null;
+            }
+            
+            if (this.light) {
+                this.container.remove(this.light);
+                this.light = null;
+            }
+            
+            this.container = null;
+        }
+        
+        // Clear references
+        this.scene = null;
+        this.particleVelocities = null;
+    }
+    
+    /**
+     * No preload needed for particle-based explosions
+     */
+    static preloadModel() {
+        // No models to preload in this implementation
     }
 } 
