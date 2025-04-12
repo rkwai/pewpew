@@ -1,0 +1,11 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# Always update c4 diagrams using mermaid.js format
+
+- Update [c1-diagrams.md](mdc:diagrams/c1-diagrams.md) when major product changes
+- Update [c2-diagrams.md](mdc:diagrams/c2-diagrams.md) when there are flow changes to large systems
+- Update [c3-diagrams.md](mdc:diagrams/c3-diagrams.md) when make sure all key components are understood
